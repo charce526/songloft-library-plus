@@ -17,7 +17,7 @@
   ],
   "icon": "icon.svg",
   "updateUrl": "https://raw.githubusercontent.com/charce526/songloft-library-plus/main/plugin.json",
-  "download_url": "https://raw.githubusercontent.com/charce526/songloft-library-plus/main/releases/library-plus-v0.2.10.jsplugin.zip",
+  "download_url": "https://raw.githubusercontent.com/charce526/songloft-library-plus/main/release/library-plus-v0.2.10.jsplugin.zip",
   "entryHash": "",
   "zipHash": ""
 }
