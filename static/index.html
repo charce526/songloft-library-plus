@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#6366f1">
+  <title>歌曲库 Plus</title>
+  <link rel="stylesheet" href="static/styles.css">
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <aside class="sidebar" aria-label="歌曲库分类">
+      <div class="brand">
+        <img src="static/icon.svg" alt="" width="40" height="40">
+        <div><strong>歌曲库 Plus</strong></div>
+      </div>
+      <nav id="sideNav" class="side-nav"></nav>
+      <div class="library-summary" id="librarySummary"></div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="topbar">
+        <button id="mobileNavButton" class="icon-button mobile-only" type="button" aria-label="打开分类导航">☰</button>
+        <div class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="searchInput" type="search" placeholder="搜索标题、歌手、专辑或路径" autocomplete="off">
+          <button id="clearSearch" class="clear-search" type="button" aria-label="清除搜索">×</button>
+        </div>
+        <button id="refreshButton" class="icon-button" type="button" aria-label="刷新歌曲库" title="刷新歌曲库">↻</button>
+      </header>
+
+      <section id="activeFilters" class="active-filters" aria-label="当前筛选条件"></section>
+
+      <section class="page-head">
+        <button id="categoryBackButton" class="back-button hidden" type="button" aria-label="返回上一视图" title="返回上一视图">←</button>
+        <div>
+          <p id="pageEyebrow" class="eyebrow">歌曲库</p>
+          <h1 id="pageTitle">全部歌曲</h1>
+          <p id="pageSubtitle" class="page-subtitle">正在读取 Songloft 曲库…</p>
+        </div>
+        <div class="page-actions">
+          <button id="categoryCreatePlaylistButton" class="primary-button hidden" type="button">＋ 自动创建歌单</button>
+        </div>
+      </section>
+
+      <section id="dashboard" class="dashboard hidden"></section>
+      <section id="folderBrowser" class="folder-browser hidden">
+        <aside class="folder-pane">
+          <div class="pane-title"><strong>文件夹</strong><div><button id="collapseFolders" class="text-button" type="button">全部收起</button><button id="toggleFolderPane" class="icon-button" type="button" aria-label="折叠文件夹栏" title="折叠文件夹栏">‹</button></div></div>
+          <div id="folderTree" class="folder-tree"></div>
+        </aside>
+        <div class="folder-content">
+          <div id="breadcrumbs" class="breadcrumbs"></div>
+          <label class="recursive-toggle"><input id="recursiveToggle" type="checkbox" checked> 包含子文件夹</label>
+          <div id="folderCards" class="folder-cards"></div>
+          <div id="folderSongsMount"></div>
+        </div>
+      </section>
+      <section id="categoryBrowser" class="category-browser hidden"></section>
+      <section id="playlistBrowser" class="playlist-browser hidden"></section>
+
+      <div id="songsDefaultMount"></div>
+      <section id="songsSection" class="songs-section">
+        <div id="playlistContextBar" class="playlist-context-bar hidden"><button class="text-button" type="button" data-back-playlists>← 返回歌单</button><div><strong id="playlistContextName"></strong><span id="playlistContextMeta"></span></div><button class="tonal-button" type="button" data-edit-current-playlist>编辑歌单</button></div>
+        <div class="list-toolbar">
+          <div id="resultCount" class="result-count">0 首歌曲</div>
+          <div class="list-actions">
+            <button id="playAllButton" class="primary-button" type="button">▶ 播放本页歌曲</button>
+            <button id="viewToggleButton" class="tonal-button" type="button">▦ 视图</button>
+          </div>
+        </div>
+        <div id="selectionBar" class="selection-bar hidden">
+          <strong id="selectionCount">已选择 0 首</strong>
+          <div class="selection-actions">
+            <button data-action="play-selected" type="button">▶ 播放选中歌曲</button>
+            <button data-action="favorite" type="button">♥ 收藏</button>
+            <button data-action="playlist" type="button">加入歌单</button>
+            <button data-action="remove-playlist" class="danger hidden" type="button">从当前歌单移除</button>
+            <button data-action="tags" type="button">编辑标签</button>
+            <button data-action="delete" class="danger" type="button">删除</button>
+          </div>
+          <div class="selection-controls floating-selection-controls" aria-label="选择控制">
+            <button data-action="select-all" type="button" title="全选当前结果">☑ 全选</button>
+            <button data-action="invert" type="button" title="反选当前结果">⇄ 反选</button>
+            <button data-action="clear" type="button" title="取消全部选择">× 取消选择</button>
+          </div>
+        </div>
+        <div id="songsContainer" class="songs-container" aria-live="polite"></div>
+        <div id="pagination" class="pagination"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="mobileNavBackdrop" class="nav-backdrop hidden"></div>
+
+  <aside id="queuePanel" class="queue-panel hidden" aria-label="正在播放列表">
+    <header><div><strong>正在播放</strong><span id="queueCount">0 首</span></div><button id="queueClose" class="icon-button" type="button" aria-label="收起播放列表">×</button></header>
+    <div id="queueList" class="queue-list"></div>
+  </aside>
+
+  <section id="playerBar" class="player-bar hidden" aria-label="试听播放器">
+    <img id="playerCover" class="player-cover" alt="">
+    <div class="player-meta"><strong id="playerTitle">未播放</strong><span id="playerArtist"></span></div>
+    <div class="player-controls">
+      <button id="playerPrev" class="icon-button" type="button" aria-label="上一首">◀</button>
+      <button id="playerToggle" class="player-toggle" type="button" aria-label="播放或暂停">▶</button>
+      <button id="playerNext" class="icon-button" type="button" aria-label="下一首">▶</button>
+    </div>
+    <div class="player-progress"><span id="playerCurrent">0:00</span><input id="playerSeek" type="range" min="0" max="1000" value="0"><span id="playerDuration">0:00</span></div>
+    <button id="playerQueueButton" class="icon-button" type="button" aria-label="查看正在播放列表" aria-expanded="false" title="正在播放列表">☷</button>
+    <button id="playerClose" class="icon-button" type="button" aria-label="关闭播放器">×</button>
+    <audio id="audioElement" preload="metadata"></audio>
+  </section>
+
+  <dialog id="playlistDialog" class="modal">
+    <form method="dialog" class="modal-card compact-modal">
+      <header><h2>加入歌单</h2><button type="button" data-close-dialog class="icon-button" aria-label="关闭">×</button></header>
+      <label>选择歌单<select id="playlistSelect"><option value="">请选择</option><option value="__new__">＋ 新建歌单…</option></select></label>
+      <label id="newPlaylistField" class="hidden">新歌单名称<input id="newPlaylistName" type="text" maxlength="50" placeholder="输入歌单名称"></label>
+      <footer><button type="button" data-close-dialog class="tonal-button">取消</button><button id="confirmPlaylistButton" class="primary-button" type="button">添加</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="playlistManageDialog" class="modal">
+    <form method="dialog" class="modal-card compact-modal">
+      <header><div><h2 id="playlistManageTitle">新建歌单</h2><p id="playlistManageHint">创建后可从歌曲选择栏添加内容</p></div><button type="button" data-close-dialog class="icon-button" aria-label="关闭">×</button></header>
+      <input id="playlistManageId" type="hidden">
+      <div class="form-grid">
+        <label>名称<input id="playlistManageName" type="text" maxlength="50" placeholder="歌单名称"></label>
+        <label>说明<textarea id="playlistManageDescription" rows="3" maxlength="500" placeholder="可选"></textarea></label>
+        <label id="playlistTypeLabel">类型<select id="playlistManageType"><option value="normal">普通歌单</option><option value="radio">电台歌单</option></select></label>
+        <label>封面地址<input id="playlistManageCover" type="text" placeholder="可选，填写图片 URL"></label>
+      </div>
+      <footer><button id="deletePlaylistButton" class="danger-button hidden" type="button">删除歌单</button><button type="button" data-close-dialog class="tonal-button">取消</button><button id="savePlaylistButton" class="primary-button" type="button">保存</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="tagsDialog" class="modal">
+    <form method="dialog" class="modal-card">
+      <header><div><h2>编辑歌曲标签</h2><p id="tagsHint">空白字段不会覆盖原值</p></div><button type="button" data-close-dialog class="icon-button" aria-label="关闭">×</button></header>
+      <div class="form-grid two-columns">
+        <label>标题<input name="title" type="text"></label>
+        <label>歌手<input name="artist" type="text"></label>
+        <label>专辑<input name="album" type="text"></label>
+        <label>音轨号<input name="track" type="text" placeholder="3/12"></label>
+        <label>年份<input name="year" type="number" min="0" max="9999"></label>
+        <label>流派<input name="genre" type="text"></label>
+        <label data-capability="language">语种<input name="language" type="text"></label>
+        <label data-capability="style">风格<input name="style" type="text"></label>
+      </div>
+      <div class="single-song-fields">
+        <label>封面地址<input name="cover_url" type="text" placeholder="可选，填写图片 URL"></label>
+        <label class="check-row"><input name="clear_cover" type="checkbox"> 清除当前封面</label>
+        <label>歌词<textarea name="lyrics" rows="7" placeholder="可选，写入手动歌词"></textarea></label>
+      </div>
+      <label class="check-row"><input name="rename_file" type="checkbox"> 单曲编辑时按新标题重命名本地文件</label>
+      <footer><button type="button" data-close-dialog class="tonal-button">取消</button><button id="confirmTagsButton" class="primary-button" type="button">保存标签</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="deleteDialog" class="modal">
+    <form method="dialog" class="modal-card compact-modal">
+      <header><h2>删除歌曲</h2><button type="button" data-close-dialog class="icon-button" aria-label="关闭">×</button></header>
+      <p id="deleteHint">确定删除所选歌曲吗？</p>
+      <label class="danger-option"><input id="deleteFilesCheckbox" type="checkbox"> 同时永久删除服务器上的本地音乐文件</label>
+      <p class="warning-text">删除文件无法撤销，默认仅删除 Songloft 曲库记录。</p>
+      <footer><button type="button" data-close-dialog class="tonal-button">取消</button><button id="confirmDeleteButton" class="danger-button" type="button">删除记录</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="columnsDialog" class="modal">
+    <form method="dialog" class="modal-card compact-modal">
+      <header><h2>显示列与视图</h2><button type="button" data-close-dialog class="icon-button" aria-label="关闭">×</button></header>
+      <fieldset class="view-mode-options"><legend>视图模式</legend><label><input type="radio" name="view_mode" value="auto"> 自动</label><label><input type="radio" name="view_mode" value="table"> 表格</label><label><input type="radio" name="view_mode" value="list"> 列表</label></fieldset>
+      <label class="page-size-option">每页显示
+        <select id="pageSizeSelect"><option value="25">25 首</option><option value="50">50 首</option><option value="100">100 首</option><option value="200">200 首</option><option value="500">500 首</option></select>
+      </label>
+      <div class="separator"><span>表格列</span></div>
+      <div id="columnOptions" class="check-list"></div>
+      <footer><button type="button" data-close-dialog class="primary-button">完成</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="autoPlaylistDialog" class="modal">
+    <form method="dialog" class="modal-card compact-modal">
+      <header><div><h2>自动创建歌单</h2><p id="autoPlaylistSubtitle">根据当前分类整理歌曲</p></div><button type="button" data-close-dialog class="icon-button" aria-label="关闭">×</button></header>
+      <div class="confirm-illustration" aria-hidden="true">♫</div>
+      <p id="autoPlaylistMessage" class="confirm-message"></p>
+      <p class="confirm-note">重复歌曲会自动跳过；新歌单会从当前歌曲中随机选择一张可用封面。</p>
+      <footer><button type="button" data-close-dialog class="tonal-button">取消</button><button id="confirmAutoPlaylistButton" class="primary-button" type="button">确认创建</button></footer>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="static/js/app.js"></script>
+</body>
+</html>

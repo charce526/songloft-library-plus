@@ -1,0 +1,5 @@
+node_modules/
+build/
+dist/
+.songloft-dev.json
+npm-debug.log*

@@ -1,0 +1,21 @@
+{
+  "name": "歌曲库 Plus",
+  "version": "0.2.10",
+  "description": "增强 Songloft 曲库的多维浏览、批量选择、歌单与电台管理、标签编辑能力。",
+  "author": "duoyu wang",
+  "homepage": "https://github.com/songloft-org/songloft",
+  "license": "Apache-2.0",
+  "entryPath": "library-plus",
+  "main": "main.js",
+  "minHostVersion": "2.10.0",
+  "permissions": [
+    "storage",
+    "songs.read",
+    "songs.write",
+    "playlists.read",
+    "playlists.write"
+  ],
+  "icon": "icon.svg",
+  "entryHash": "",
+  "zipHash": ""
+}
