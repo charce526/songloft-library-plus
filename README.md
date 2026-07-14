@@ -33,6 +33,24 @@ Songloft 歌曲库 Plus 是一款面向 [Songloft](https://github.com/songloft-o
 - 支持播放本页歌曲、播放选中歌曲以及查看当前播放队列
 - 提供紧凑的响应式界面，兼顾桌面端和移动端使用
 
+
+## 🖼️ 界面预览
+
+<table>
+  <tr>
+    <td align="center"><strong>001</strong></td>
+    <td align="center"><strong>002</strong></td>
+    <td align="center"><strong>003</strong></td>
+    <td align="center"><strong>004</strong></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/001.png" alt=""></td>
+    <td><img src="screenshots/002.png" alt=""></td>
+    <td><img src="screenshots/003.png" alt=""></td>
+    <td><img src="screenshots/004.png" alt=""></td>
+  </tr>
+</table>
+
 ## 🔗 关于 Songloft
 
 [Songloft](https://github.com/songloft-org/songloft) 是本插件所依赖的音乐服务项目。本插件基于 Songloft 提供的插件能力开发，是独立维护的扩展项目，并非 Songloft 主程序的内置组件。
