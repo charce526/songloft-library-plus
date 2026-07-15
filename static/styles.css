@@ -38,34 +38,6 @@
   --topbar-bg: rgba(20, 20, 23, .94);
 }
 
-/* Fallback: if app.js theme sync hasn't run yet but the OS itself is dark. */
-@media (prefers-color-scheme: dark) {
-  #app {
-    --md-surface: #1b1b1f;
-    --md-on-surface: #e3e2e6;
-    --md-surface-container-lowest: #101013;
-    --md-surface-container-low: #1f1f24;
-    --md-surface-container: #25252b;
-    --md-surface-container-high: #2f2f36;
-    --md-surface-container-highest: #3a3a42;
-    --md-on-surface-variant: #c5c5ce;
-    --md-outline: #8a8d93;
-    --md-outline-variant: #44454d;
-    --md-primary: #bcc4ff;
-    --md-on-primary: #1b1b1f;
-    --md-primary-container: #2a2f63;
-    --md-on-primary-container: #dce3ff;
-    --md-secondary-container: #2e335f;
-    --md-on-secondary-container: #dfe5ff;
-    --md-error: #ffb4ab;
-    --md-on-error: #690005;
-    --md-error-container: #93000a;
-    --md-inverse-surface: #e3e2e6;
-    --md-inverse-on-surface: #1b1b1f;
-    --topbar-bg: rgba(20, 20, 23, .94);
-  }
-}
-
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--md-surface, #fafafa); color: var(--md-on-surface, #1b1b1f); }
 body { font-family: var(--md-font-family, system-ui, -apple-system, "Segoe UI", sans-serif); overflow-x: hidden; }
