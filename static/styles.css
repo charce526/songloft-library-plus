@@ -2,6 +2,68 @@
   --sidebar-width: 216px;
   --player-height: 68px;
   --content-max: 1320px;
+  --topbar-bg: rgba(250, 250, 250, .94);
+}
+
+/* The host supplies the Material 3 --md-* tokens (incl. a dark --md-surface in
+   dark mode). It does NOT theme a few surfaces for us (notably
+   --md-surface-container-lowest), so cards/inputs/buttons fall back to white.
+   We therefore never redefine the --md-* variables at :root (that would clobber
+   the host's own theme). Instead app.js adds `.theme-dark` to #app whenever the
+   host is in dark mode (detected from the host's actual --md-surface color),
+   and only then do we fill in the missing/dark tokens — scoped to #app so light
+   mode is left entirely to the host. */
+#app.theme-dark {
+  --md-surface: #1b1b1f;
+  --md-on-surface: #e3e2e6;
+  --md-surface-container-lowest: #101013;
+  --md-surface-container-low: #1f1f24;
+  --md-surface-container: #25252b;
+  --md-surface-container-high: #2f2f36;
+  --md-surface-container-highest: #3a3a42;
+  --md-on-surface-variant: #c5c5ce;
+  --md-outline: #8a8d93;
+  --md-outline-variant: #44454d;
+  --md-primary: #bcc4ff;
+  --md-on-primary: #1b1b1f;
+  --md-primary-container: #2a2f63;
+  --md-on-primary-container: #dce3ff;
+  --md-secondary-container: #2e335f;
+  --md-on-secondary-container: #dfe5ff;
+  --md-error: #ffb4ab;
+  --md-on-error: #690005;
+  --md-error-container: #93000a;
+  --md-inverse-surface: #e3e2e6;
+  --md-inverse-on-surface: #1b1b1f;
+  --topbar-bg: rgba(20, 20, 23, .94);
+}
+
+/* Fallback: if app.js theme sync hasn't run yet but the OS itself is dark. */
+@media (prefers-color-scheme: dark) {
+  #app {
+    --md-surface: #1b1b1f;
+    --md-on-surface: #e3e2e6;
+    --md-surface-container-lowest: #101013;
+    --md-surface-container-low: #1f1f24;
+    --md-surface-container: #25252b;
+    --md-surface-container-high: #2f2f36;
+    --md-surface-container-highest: #3a3a42;
+    --md-on-surface-variant: #c5c5ce;
+    --md-outline: #8a8d93;
+    --md-outline-variant: #44454d;
+    --md-primary: #bcc4ff;
+    --md-on-primary: #1b1b1f;
+    --md-primary-container: #2a2f63;
+    --md-on-primary-container: #dce3ff;
+    --md-secondary-container: #2e335f;
+    --md-on-secondary-container: #dfe5ff;
+    --md-error: #ffb4ab;
+    --md-on-error: #690005;
+    --md-error-container: #93000a;
+    --md-inverse-surface: #e3e2e6;
+    --md-inverse-on-surface: #1b1b1f;
+    --topbar-bg: rgba(20, 20, 23, .94);
+  }
 }
 
 * { box-sizing: border-box; }
@@ -31,7 +93,7 @@ button:disabled { cursor: default; opacity: .5; }
 .library-summary strong { color: var(--md-on-surface, #1b1b1f); font-size: 15px; }
 
 .main-panel { min-width: 0; padding: 0 20px calc(var(--player-height) + 18px); }
-.topbar { position: sticky; top: 0; z-index: 15; max-width: var(--content-max); margin: 0 auto; padding: 9px 0; display: flex; gap: 7px; align-items: center; background: rgba(250, 250, 250, .94); backdrop-filter: blur(14px); }
+.topbar { position: sticky; top: 0; z-index: 15; max-width: var(--content-max); margin: 0 auto; padding: 9px 0; display: flex; gap: 7px; align-items: center; background: var(--topbar-bg); backdrop-filter: blur(14px); }
 .search-box { min-width: 180px; flex: 1; display: flex; align-items: center; gap: 7px; height: 40px; padding: 0 11px; border-radius: 14px; background: var(--md-surface-container-high, #f3f4f6); border: 1px solid var(--md-outline, #8a8d93); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
 .search-box:focus-within { border-color: var(--md-primary, #4f5bd5); }
 .search-box input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--md-on-surface, #1b1b1f); }
@@ -152,10 +214,15 @@ body.player-active .selection-bar { bottom: calc(var(--player-height) + 10px); }
 .col-favorite { width: 32px; padding: 0 !important; text-align: left !important; }
 .col-favorite .sort-header { position: relative; width: 28px; justify-content: flex-start; gap: 0; color: var(--md-error, #d32f2f); }
 .col-favorite .sort-arrow { position: absolute; right: 0; min-width: 0; font-size: 10px; }
-.favorite-header-icon { font-size: 18px; line-height: 1; }
-.favorite-button { width: 24px; height: 30px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--md-on-surface-variant, #686a73); font-size: 19px; line-height: 1; text-align: left; }
+.favorite-header-icon { display: inline-flex; line-height: 1; }
+.favorite-header-icon svg { width: 17px; height: 17px; display: block; }
+.favorite-header-icon svg path { fill: currentColor; }
+.favorite-button { width: 24px; height: 30px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--md-on-surface-variant, #686a73); display: inline-flex; align-items: center; justify-content: center; }
+.favorite-button .heart-icon { width: 18px; height: 18px; display: block; }
+.favorite-button .heart-icon path { fill: none; stroke: currentColor; stroke-width: 2; }
 .favorite-button:hover { background: transparent; color: var(--md-error, #d32f2f); }
 .favorite-button.active { color: var(--md-error, #d32f2f); }
+.favorite-button.active .heart-icon path { fill: currentColor; stroke: currentColor; }
 .song-cover { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; background: var(--md-surface-container-high, #e8e8ef); }
 .play-cover { cursor: pointer; }
 .play-cover:hover .song-cover { outline: 2px solid var(--md-primary); outline-offset: 2px; }
@@ -169,6 +236,9 @@ body.player-active .selection-bar { bottom: calc(var(--player-height) + 10px); }
 .song-list-item:hover { background: var(--md-surface-container-high, #e8e8ef); }
 .song-list-item.selected { background: var(--md-secondary-container, #dfe5ff) !important; color: var(--md-on-secondary-container, #15205b); border-radius: 12px; box-shadow: inset 4px 0 var(--md-primary, #4f5bd5); }
 .song-list-item .song-cover { width: 42px; height: 42px; }
+/* Tighten the gap between the checkbox (col 1) and the favorite heart (col 2)
+   in the mobile list view without affecting the other columns. */
+.song-list-item .favorite-button { margin-left: -6px; }
 .song-list-meta { min-width: 0; }
 .song-list-meta strong, .song-list-meta span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .song-list-meta span { color: var(--md-on-surface-variant); margin-top: 3px; font-size: 13px; }

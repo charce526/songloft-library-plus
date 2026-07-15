@@ -1,6 +1,6 @@
 {
   "name": "songloft-library-plus",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "private": true,
   "description": "Songloft 歌曲库 Plus 插件",
   "scripts": {

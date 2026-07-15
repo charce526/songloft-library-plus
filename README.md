@@ -61,7 +61,7 @@ Songloft 歌曲库 Plus 是一款面向 [Songloft](https://github.com/songloft-o
 
 ## 📦 安装
 
-1. 下载 [library-plus-v0.2.10.jsplugin.zip](./release/library-plus-v0.2.10.jsplugin.zip)。
+1. 下载 [library-plus-v0.2.11.jsplugin.zip](./release/library-plus-v0.2.11.jsplugin.zip)。
 2. 打开 Songloft 插件管理页面。
 3. 上传安装包并启用“歌曲库 Plus”。
 

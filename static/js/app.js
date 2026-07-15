@@ -3,6 +3,58 @@
 
 const { apiGet, apiPost, getAuthToken, announce } = SongloftPlugin;
 
+// ---- Theme sync -----------------------------------------------------------
+// The host (Songloft) themes itself via Material 3 CSS variables. The plugin
+// must mirror the host's dark/light state so its own surfaces stay readable.
+// We detect the host's effective theme by reading the *actual* computed value
+// of --md-surface (which the host always sets), so this works whether the host
+// follows the OS preference or an in-app toggle. We then tag #app with
+// `.theme-dark`, which is what styles.css keys its dark overrides off of.
+function slpColorLuminance(css) {
+  css = (css || '').trim();
+  let r, g, b;
+  if (css.startsWith('#')) {
+    let h = css.slice(1);
+    if (h.length === 3) h = h.split('').map((x) => x + x).join('');
+    r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
+  } else {
+    const m = css.match(/rgba?\(([^)]+)\)/);
+    if (!m) return null;
+    const p = m[1].split(',').map((s) => parseFloat(s));
+    [r, g, b] = [p[0], p[1], p[2]];
+  }
+  if ([r, g, b].some((v) => isNaN(v))) return null;
+  const a = [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+  return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+}
+
+function slpApplyTheme() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const surface = getComputedStyle(document.documentElement).getPropertyValue('--md-surface').trim();
+  const lum = slpColorLuminance(surface);
+  const dark = lum !== null ? lum < 0.5 : (window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false);
+  app.classList.toggle('theme-dark', dark);
+}
+
+function slpInitThemeSync() {
+  slpApplyTheme();
+  const root = document.documentElement;
+  if (window.MutationObserver) {
+    new MutationObserver(() => slpApplyTheme()).observe(root, {
+      attributes: true,
+      attributeFilter: ['class', 'style', 'data-theme', 'data-mode', 'color-scheme'],
+    });
+  }
+  if (window.matchMedia) {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', slpApplyTheme);
+    else if (mq.addListener) mq.addListener(slpApplyTheme);
+  }
+}
+
+
+
 const NAV_ITEMS = [
   { group: '浏览', id: 'dashboard', label: '概览', icon: 'home' },
   { group: '浏览', id: 'all', label: '全部歌曲', icon: 'music' },
@@ -440,6 +492,10 @@ function songCheckbox(song) {
   return `<input type="checkbox" data-select-song="${song.id}" aria-label="选择 ${escapeHtml(song.title)}" ${state.selected.has(song.id) ? 'checked' : ''}>`;
 }
 
+function heartSvg() {
+  return '<svg class="heart-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.27 2 8.5 2 5.41 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.41 22 8.5c0 3.77-3.4 6.86-8.55 11.53L12 21.35z"/></svg>';
+}
+
 function sortableHeader(column, label, className, defaultOrder = 'asc') {
   const active = state.sort === column;
   const arrow = active ? (state.order === 'asc' ? '↑' : '↓') : '';
@@ -454,7 +510,7 @@ function renderTable() {
     ['artist', '歌手', 'artist', 'asc'], ['album', '专辑', 'album', 'asc'], ['year', '年份', 'year', 'desc'], ['genre', '流派', 'genre', 'asc'],
     ['format', '格式', 'format', 'asc'], ['bitrate', '码率', 'bit_rate', 'desc'], ['size', '大小', 'file_size', 'desc'],
   ].filter(([id]) => cols.has(id)).map(([id, label, sort, order]) => sortableHeader(sort, label, `col-${id}`, order)).join('');
-  const favoriteHeader = sortableHeader('favorite', '<span class="favorite-header-icon" aria-hidden="true">♥</span>', 'col-favorite', 'desc');
+  const favoriteHeader = sortableHeader('favorite', '<span class="favorite-header-icon" aria-hidden="true">' + heartSvg() + '</span>', 'col-favorite', 'desc');
   return `<table class="songs-table"><thead><tr><th class="col-check"><input id="pageSelectCheckbox" type="checkbox" aria-label="选择本页"></th>${favoriteHeader}<th class="col-cover"></th>${sortableHeader('title', '标题', 'col-title')}${optionalHeaders}${sortableHeader('duration', '时长', 'col-duration')}</tr></thead><tbody>${state.songs.map((song, index) => {
     const optional = [
       ['artist', song.artist || '未知歌手'], ['album', song.album || '未知专辑'], ['year', song.year || '—'],
@@ -462,14 +518,14 @@ function renderTable() {
       ['bitrate', song.bit_rate ? `${song.bit_rate}k` : '—'], ['size', formatSize(song.file_size)],
     ].filter(([id]) => cols.has(id)).map(([id, value]) => `<td class="col-${id}" title="${escapeHtml(String(value).replace(/<[^>]*>/g, ''))}">${id === 'format' ? value : escapeHtml(value)}</td>`).join('');
     const favorite = state.favoriteIds.has(song.id);
-    return `<tr data-song-row="${song.id}" data-song-index="${index}" class="${state.selected.has(song.id) ? 'selected' : ''}"><td class="col-check">${songCheckbox(song)}</td><td class="col-favorite"><button class="favorite-button${favorite ? ' active' : ''}" type="button" data-toggle-favorite="${song.id}" aria-label="${favorite ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorite}">${favorite ? '♥' : '♡'}</button></td><td class="col-cover play-cover" data-play-song="${song.id}" title="点击封面试听">${coverHtml(song)}</td><td class="col-title"><div class="song-title-cell"><span class="song-title-text">${escapeHtml(song.title)}</span>${state.currentSong?.id === song.id ? '<span class="playing-indicator">▶</span>' : ''}</div></td>${optional}<td class="col-duration">${formatDuration(song.duration)}</td></tr>`;
+    return `<tr data-song-row="${song.id}" data-song-index="${index}" class="${state.selected.has(song.id) ? 'selected' : ''}"><td class="col-check">${songCheckbox(song)}</td><td class="col-favorite"><button class="favorite-button${favorite ? ' active' : ''}" type="button" data-toggle-favorite="${song.id}" aria-label="${favorite ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorite}">${heartSvg()}</button></td><td class="col-cover play-cover" data-play-song="${song.id}" title="点击封面试听">${coverHtml(song)}</td><td class="col-title"><div class="song-title-cell"><span class="song-title-text">${escapeHtml(song.title)}</span>${state.currentSong?.id === song.id ? '<span class="playing-indicator">▶</span>' : ''}</div></td>${optional}<td class="col-duration">${formatDuration(song.duration)}</td></tr>`;
   }).join('')}</tbody></table>`;
 }
 
 function renderList() {
   return `<div class="song-list">${state.songs.map((song, index) => {
     const favorite = state.favoriteIds.has(song.id);
-    return `<div class="song-list-item${state.selected.has(song.id) ? ' selected' : ''}" data-song-row="${song.id}" data-song-index="${index}"><div>${songCheckbox(song)}</div><button class="favorite-button${favorite ? ' active' : ''}" type="button" data-toggle-favorite="${song.id}" aria-label="${favorite ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorite}">${favorite ? '♥' : '♡'}</button><div class="play-cover" data-play-song="${song.id}" title="点击封面试听">${coverHtml(song)}</div><div class="song-list-meta"><strong>${escapeHtml(song.title)}${state.currentSong?.id === song.id ? '　▶' : ''}</strong><span>${escapeHtml(song.artist || '未知歌手')} · ${escapeHtml(song.album || '未知专辑')}</span></div><div class="song-list-tail"><div>${formatDuration(song.duration)}</div><div>${escapeHtml(String(song.format || '').toUpperCase())}</div></div></div>`;
+    return `<div class="song-list-item${state.selected.has(song.id) ? ' selected' : ''}" data-song-row="${song.id}" data-song-index="${index}"><div>${songCheckbox(song)}</div><button class="favorite-button${favorite ? ' active' : ''}" type="button" data-toggle-favorite="${song.id}" aria-label="${favorite ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorite}">${heartSvg()}</button><div class="play-cover" data-play-song="${song.id}" title="点击封面试听">${coverHtml(song)}</div><div class="song-list-meta"><strong>${escapeHtml(song.title)}${state.currentSong?.id === song.id ? '　▶' : ''}</strong><span>${escapeHtml(song.artist || '未知歌手')} · ${escapeHtml(song.album || '未知专辑')}</span></div><div class="song-list-tail"><div>${formatDuration(song.duration)}</div><div>${escapeHtml(String(song.format || '').toUpperCase())}</div></div></div>`;
   }).join('')}</div>`;
 }
 
@@ -1447,6 +1503,7 @@ function bindEvents() {
 async function init() {
   if (state.initialized) return;
   state.initialized = true;
+  slpInitThemeSync();
   bindEvents();
   $('#clearSearch').style.visibility = 'hidden';
   $('#dashboard').classList.remove('hidden');
