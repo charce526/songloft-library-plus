@@ -2,7 +2,7 @@
 
 Songloft 歌曲库 Plus 是一款面向 [Songloft](https://github.com/songloft-org/songloft) 的歌曲库增强插件。它在原有歌曲库基础上扩展了多维浏览、批量管理、收藏、歌单、电台和标签编辑能力，让较大规模的音乐库更容易查找、整理与播放。
 
-插件通过 Songloft 的插件机制运行，不替换、不修改 Songloft 主程序。
+> 🤖 本插件由 AI 生成。欢迎通过 GitHub Issues 反馈使用中遇到的问题与改进建议。
 
 ## ✨ 功能亮点
 
