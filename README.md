@@ -4,6 +4,14 @@ Songloft 歌曲库 Plus 是一款面向 [Songloft](https://github.com/songloft-o
 
 > 🤖 本插件由 AI 生成。欢迎通过 GitHub Issues 反馈使用中遇到的问题与改进建议。
 
+## 🔗 关于 Songloft
+
+[Songloft](https://github.com/songloft-org/songloft) 是本插件所依赖的音乐服务项目。本插件基于 Songloft 提供的插件能力开发，是独立维护的扩展项目，并非 Songloft 主程序的内置组件。
+
+- 上游项目：[songloft-org/songloft](https://github.com/songloft-org/songloft)
+- 最低兼容版本：Songloft v2.10.0
+- 语种、风格等能力会根据当前 Songloft 版本自动检测
+
 ## ✨ 功能亮点
 
 ### 多维浏览
@@ -51,17 +59,9 @@ Songloft 歌曲库 Plus 是一款面向 [Songloft](https://github.com/songloft-o
   </tr>
 </table>
 
-## 🔗 关于 Songloft
-
-[Songloft](https://github.com/songloft-org/songloft) 是本插件所依赖的音乐服务项目。本插件基于 Songloft 提供的插件能力开发，是独立维护的扩展项目，并非 Songloft 主程序的内置组件。
-
-- 上游项目：[songloft-org/songloft](https://github.com/songloft-org/songloft)
-- 最低兼容版本：Songloft v2.10.0
-- 语种、风格等能力会根据当前 Songloft 版本自动检测
-
 ## 📦 安装
 
-1. 下载 [library-plus-v0.2.12.jsplugin.zip](./release/library-plus-v0.2.12.jsplugin.zip)。
+1. 下载 [library-plus.jsplugin.zip](https://github.com/charce526/songloft-library-plus/releases)。
 2. 打开 Songloft 插件管理页面。
 3. 上传安装包并启用“歌曲库 Plus”。
 
@@ -80,11 +80,6 @@ npm run build
 ```bash
 npm run dev
 ```
-
-## 🛡️ 安全说明
-
-- 删除本地音乐文件默认关闭，启用后会再次确认。
-- 插件中的试听播放器独立运行，不会替换 Songloft 原生播放功能。
 
 ## 📄 许可证
 
