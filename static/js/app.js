@@ -245,12 +245,22 @@ function showToast(message, type = 'info') {
 function setBusy(button, busy, label) {
   if (!button) return;
   if (busy) {
-    button.dataset.originalLabel = button.textContent;
-    button.textContent = label || '处理中…';
-    button.disabled = true;
+    if (window.innerWidth <= 760) {
+      button.classList.add('busy');
+      button.disabled = true;
+    } else {
+      button.dataset.originalHtml = button.innerHTML;
+      button.innerHTML = label || '处理中…';
+      button.disabled = true;
+    }
   } else {
-    button.textContent = button.dataset.originalLabel || button.textContent;
-    button.disabled = false;
+    if (window.innerWidth <= 760) {
+      button.classList.remove('busy');
+      button.disabled = false;
+    } else {
+      button.innerHTML = button.dataset.originalHtml || button.innerHTML;
+      button.disabled = false;
+    }
   }
 }
 
@@ -286,7 +296,7 @@ function setCategoryPlaylistAction(field = null, value = null) {
   const available = ['artist', 'album', 'genre', 'year'].includes(field) && value != null && value !== '';
   state.categoryValue = available ? String(value) : null;
   button.classList.toggle('hidden', !available);
-  button.title = available ? `用“${value}”分类中的歌曲创建或更新同名歌单` : '';
+  button.title = available ? `用"${value}"分类中的歌曲创建或更新同名歌单` : '';
 }
 
 function showSection(name) {
@@ -577,7 +587,7 @@ async function jumpToPage() {
 function updateSelectionBar() {
   const count = state.selected.size;
   $('#selectionBar').classList.toggle('hidden', count === 0);
-  $('#selectionCount').textContent = `已选择 ${count.toLocaleString()} 首`;
+  $('#selectionCount').textContent = `已选 ${count.toLocaleString()} 首`;
   $('[data-action="remove-playlist"]').classList.toggle('hidden', !state.currentPlaylist);
   $('[data-action="select-all"]').disabled = state.total === 0;
   $('[data-action="invert"]').disabled = state.total === 0;
@@ -813,7 +823,7 @@ async function deletePlaylist(playlist = null) {
   const id = playlist?.id || Number($('#playlistManageId').value || 0);
   const target = playlist || state.playlists.find((item) => item.id === id);
   if (!target || playlistIsBuiltIn(target)) return;
-  if (!window.confirm(`确定删除歌单“${target.name}”吗？歌曲本身不会被删除。`)) return;
+  if (!window.confirm(`确定删除歌单"${target.name}"吗？歌曲本身不会被删除。`)) return;
   const button = $('#deletePlaylistButton');
   setBusy(button, true, '正在删除…');
   try {
@@ -851,9 +861,16 @@ async function openPlaylist(playlist) {
 
 async function removeSelectedFromPlaylist() {
   if (!state.currentPlaylist || !state.selected.size) return;
-  if (!window.confirm(`从“${state.currentPlaylist.name}”移除已选的 ${state.selected.size} 首歌曲？`)) return;
+  $('#removePlaylistHint').textContent = `确定从"${state.currentPlaylist.name}"移除已选的 ${state.selected.size} 首歌曲吗？`;
+  $('#removePlaylistDialog').showModal();
+}
+
+async function confirmRemoveFromPlaylist() {
+  const button = $('#confirmRemovePlaylistButton');
+  setBusy(button, true, '正在移除…');
   try {
     const data = await apiPost('/api/playlists/remove', { playlistId: state.currentPlaylist.id, songIds: Array.from(state.selected) });
+    $('#removePlaylistDialog').close();
     state.selected.clear();
     state.currentPlaylist.song_count = Math.max(0, Number(state.currentPlaylist.song_count || 0) - Number(data.removed || 0));
     setPageHeading('歌单', state.currentPlaylist.name, `${state.currentPlaylist.type === 'radio' ? '电台歌单' : '普通歌单'} · ${state.currentPlaylist.song_count.toLocaleString()} 首歌曲`);
@@ -861,6 +878,8 @@ async function removeSelectedFromPlaylist() {
     await loadSongs();
   } catch (error) {
     showToast(`移除失败：${error.message}`, 'error');
+  } finally {
+    setBusy(button, false);
   }
 }
 
@@ -949,8 +968,8 @@ async function openAutoPlaylistDialog() {
     state.pendingAutoPlaylist = { field, value, playlistId: existing?.id || 0 };
     $('#autoPlaylistSubtitle').textContent = `${FIELD_LABELS[field] || field} · ${value}`;
     $('#autoPlaylistMessage').textContent = existing
-      ? `已经存在“${value}”歌单。确认后会把当前分类中的歌曲添加进去，并自动去重。`
-      : `将根据当前分类创建“${value}”歌单，并加入其中的全部歌曲。`;
+      ? `已经存在"${value}"歌单。确认后会把当前分类中的歌曲添加进去，并自动去重。`
+      : `将根据当前分类创建"${value}"歌单，并加入其中的全部歌曲。`;
     $('#confirmAutoPlaylistButton').textContent = existing ? '确认添加' : '确认创建';
     $('#autoPlaylistDialog').showModal();
   } catch (error) {
@@ -974,7 +993,7 @@ async function confirmAutoPlaylist() {
     });
     $('#autoPlaylistDialog').close();
     state.pendingAutoPlaylist = null;
-    const prefix = result.created ? `已创建“${pending.value}”歌单` : `已更新“${pending.value}”歌单`;
+    const prefix = result.created ? `已创建"${pending.value}"歌单` : `已更新"${pending.value}"歌单`;
     showToast(`${prefix}：加入 ${result.added || 0} 首，跳过 ${result.skipped || 0} 首`);
   } catch (error) {
     showToast(`创建歌单失败：${error.message}`, 'error');
@@ -1166,7 +1185,7 @@ function updatePlayerTime() {
   $('#playerCurrent').textContent = formatDuration(audio.currentTime);
   $('#playerDuration').textContent = formatDuration(audio.duration);
   $('#playerSeek').value = audio.duration ? Math.round(audio.currentTime / audio.duration * 1000) : 0;
-  $('#playerToggle').textContent = audio.paused ? '▶' : '⏸';
+  $('#playerToggle').classList.toggle('paused', !audio.paused);
   $('#playerToggle').setAttribute('aria-label', audio.paused ? '播放' : '暂停');
 }
 
@@ -1480,6 +1499,7 @@ function bindEvents() {
   $('#deletePlaylistButton').addEventListener('click', () => deletePlaylist());
   $('#confirmTagsButton').addEventListener('click', confirmTags);
   $('#confirmDeleteButton').addEventListener('click', confirmDelete);
+  $('#confirmRemovePlaylistButton').addEventListener('click', confirmRemoveFromPlaylist);
   $('#deleteFilesCheckbox').addEventListener('change', (event) => { $('#confirmDeleteButton').textContent = event.target.checked ? '永久删除文件' : '删除记录'; });
   $('#mobileNavButton').addEventListener('click', () => { $('.sidebar').classList.add('open'); $('#mobileNavBackdrop').classList.remove('hidden'); });
   $('#mobileNavBackdrop').addEventListener('click', closeMobileNav);
