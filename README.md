@@ -44,10 +44,10 @@ Songloft 歌曲库 Plus 是一款面向 [Songloft](https://github.com/songloft-o
     <td align="center"><strong>004</strong></td>
   </tr>
   <tr>
-    <td><img src="screenshots/001.png" alt=""></td>
-    <td><img src="screenshots/002.png" alt=""></td>
-    <td><img src="screenshots/003.png" alt=""></td>
-    <td><img src="screenshots/004.png" alt=""></td>
+    <td><a href="https://raw.githubusercontent.com/charce526/songloft-library-plus/main/screenshots/001.png" target="_blank"><img src="screenshots/001.png" alt="界面预览 001"></a></td>
+    <td><a href="https://raw.githubusercontent.com/charce526/songloft-library-plus/main/screenshots/002.png" target="_blank"><img src="screenshots/002.png" alt="界面预览 002"></a></td>
+    <td><a href="https://raw.githubusercontent.com/charce526/songloft-library-plus/main/screenshots/003.png" target="_blank"><img src="screenshots/003.png" alt="界面预览 003"></a></td>
+    <td><a href="https://raw.githubusercontent.com/charce526/songloft-library-plus/main/screenshots/004.png" target="_blank"><img src="screenshots/004.png" alt="界面预览 004"></a></td>
   </tr>
 </table>
 
