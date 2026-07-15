@@ -1,11 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6366f1"/>
-      <stop offset="1" stop-color="#8b5cf6"/>
-    </linearGradient>
-  </defs>
-  <rect width="96" height="96" rx="24" fill="url(#g)"/>
-  <path fill="#fff" d="M59 19v39.5a15 15 0 1 1-7-12.7V29l27-6v29.5a15 15 0 1 1-7-12.7V19.5L59 22.4V19Z"/>
-  <path fill="#fff" fill-opacity=".9" d="M16 69h39v8H16zm0 14h56v6H16z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" style="background: transparent;">
+  <!-- Base App Icon Rounded Square (Fills 100% of the 512x512 canvas to remove any outer margin) -->
+  <rect x="0" y="0" width="512" height="512" rx="120" fill="#80ced7" />
+
+  <!-- Vinyl Record (Peeking out from the folder) -->
+  <circle cx="256" cy="215" r="130" fill="#b0bec5" />
+  <circle cx="256" cy="215" r="105" fill="none" stroke="#37474f" stroke-width="5" />
+  <circle cx="256" cy="215" r="80" fill="none" stroke="#37474f" stroke-width="5" />
+  <circle cx="256" cy="215" r="45" fill="#e57373" />
+  <circle cx="256" cy="215" r="16" fill="#37474f" />
+  <circle cx="256" cy="215" r="7" fill="#80ced7" />
+
+  <!-- Music Folder (Solid light off-white/gray) -->
+  <path d="M 70,215 L 165,215 L 200,245 L 442,245 L 442,415 C 442,434 426,450 407,450 L 105,450 C 86,450 70,434 70,415 Z" fill="#cfd8dc" />
+  <path d="M 70,245 L 442,245 L 442,415 C 442,434 426,450 407,450 L 105,450 C 86,450 70,434 70,415 Z" fill="#f5f7f8" />
+
+  <!-- Music Note on Folder (Solid slate blue) -->
+  <g>
+    <path d="M 225,370 L 225,275 C 225,272 227,270 231,270 L 296,254 C 299,253 303,255 303,259 L 303,340" fill="none" stroke="#37474f" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 225,284 L 303,265 L 303,291 L 225,310 Z" fill="#37474f" />
+    <ellipse cx="202" cy="375" rx="24" ry="18" transform="rotate(-15 202 375)" fill="#37474f" />
+    <ellipse cx="280" cy="345" rx="24" ry="18" transform="rotate(-15 280 345)" fill="#37474f" />
+  </g>
+
+  <!-- The "Plus" Badge on bottom right (Solid Orange/Yellow, overlapping perfectly) -->
+  <g>
+    <circle cx="405" cy="405" r="65" fill="#ffb74d" stroke="#ffffff" stroke-width="7" />
+    <path d="M 405,375 L 405,435 M 375,405 L 435,405" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" />
+  </g>
 </svg>
