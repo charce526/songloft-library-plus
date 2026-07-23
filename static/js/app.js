@@ -53,7 +53,271 @@ function slpInitThemeSync() {
   }
 }
 
+// ---- Player bridge (official Songloft SDK) --------------------------------
+// Playback is delegated entirely to the Songloft host player through
+// window.SongloftPlugin.player. The plugin keeps no local audio element and no
+// local queue: the host player is the single source of truth. This mirrors the
+// approach used by songloft-now-playing — calls are retried on timeout and
+// rapid togglePlay taps are coalesced to avoid flooding the host bridge.
+class PlayerBridge {
+  constructor() {
+    this.listeners = new Set();
+    this.sdkBound = false;
+    this.toggleBusy = false;
+    this.toggleQueued = false;
+  }
 
+  player() { return window.SongloftPlugin?.player; }
+
+  available() {
+    const host = window.SongloftPlugin?.host;
+    if (host && typeof host.isAvailable === 'function') return Boolean(host.isAvailable());
+    return Boolean(this.player());
+  }
+
+  invoke(method, args) {
+    const player = this.player();
+    if (!player || typeof player[method] !== 'function') {
+      return Promise.reject(new Error(`播放器桥接不可用：${method}`));
+    }
+    return Promise.resolve(player[method](...args));
+  }
+
+  async call(method, args, retries = 3) {
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        return await this.invoke(method, args);
+      } catch (error) {
+        lastError = error;
+        const isTimeout = /timeout|超时/i.test(String(error?.message || error));
+        if (!isTimeout || attempt === retries) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 320 * (attempt + 1)));
+      }
+    }
+    throw lastError;
+  }
+
+  getState() { return this.call('getState', []); }
+  play(id) { return this.call('play', [id]); }
+  setQueue(ids, startIndex = 0) { return this.call('setQueue', [ids, { startIndex }]); }
+  addToQueue(ids) { return this.call('addToQueue', [ids]); }
+  previous() { return this.call('prev', []); }
+  next() { return this.call('next', []); }
+  seek(seconds) { return this.call('seek', [seconds]); }
+  pause() { return this.invoke('pause', []); }
+  setMode(mode) { return this.call('setPlayMode', [mode]); }
+  setVolume(volume) { return this.invoke('setVolume', [volume]); }
+
+  toggle() {
+    if (this.toggleBusy) {
+      this.toggleQueued = true;
+      return Promise.resolve({ coalesced: true });
+    }
+    this.toggleBusy = true;
+    return this.call('togglePlay', []).finally(() => {
+      this.toggleBusy = false;
+      if (this.toggleQueued) {
+        this.toggleQueued = false;
+        setTimeout(() => { this.toggle().catch(() => {}); }, 80);
+      }
+    });
+  }
+
+  onState(fn) {
+    this.listeners.add(fn);
+    const player = this.player();
+    if (!this.sdkBound && player && typeof player.onStateChange === 'function') {
+      this.sdkBound = true;
+      player.onStateChange((state) => this.listeners.forEach((listener) => listener(state)));
+    }
+  }
+}
+
+const playerBridge = new PlayerBridge();
+
+// Host-driven playback state. Populated exclusively from player.getState() and
+// player.onStateChange(); never mutated by local playback logic.
+const playerState = {
+  queue: [],
+  currentIndex: -1,
+  playing: false,
+  currentSong: null,
+  duration: 0,
+  posAnchor: null,
+  dismissed: false,
+};
+
+function rawSong(song) { return song?.song || song?.track || song || {}; }
+
+function songId(song) {
+  const s = rawSong(song);
+  const id = s.id ?? song?.id ?? s.song_id ?? song?.song_id ?? s.songId ?? song?.songId;
+  return id == null ? '' : String(id);
+}
+
+function normalizeSong(song, index = 0) {
+  const s = rawSong(song);
+  const id = songId(song);
+  return { ...s, ...song, id: id || String(index + 1) };
+}
+
+function stateQueue(state) {
+  const q = state.queue ?? state.play_queue ?? state.playQueue ?? state.queue_songs
+    ?? state.queueSongs ?? state.songs ?? state.playlist;
+  const list = Array.isArray(q) ? q
+    : Array.isArray(q?.songs) ? q.songs
+    : Array.isArray(q?.items) ? q.items
+    : Array.isArray(q?.queue) ? q.queue : [];
+  return list.map(normalizeSong).filter(songId);
+}
+
+function stateIndex(state, queue) {
+  const raw = Number.isInteger(state.current_index) ? state.current_index
+    : Number.isInteger(state.currentIndex) ? state.currentIndex : -1;
+  const id = songId(state.current_song ?? state.currentSong);
+  const found = id ? queue.findIndex((s) => songId(s) === id) : -1;
+  if (found >= 0 && (raw < 0 || raw >= queue.length || songId(queue[raw]) !== id)) return found;
+  return raw >= 0 && raw < queue.length ? raw : found;
+}
+
+function statePlaying(state, fallback) {
+  const value = state.is_playing ?? state.isPlaying ?? state.playing ?? state.player_state
+    ?? state.playerState ?? state.status;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.toLowerCase();
+    if (['paused', 'pause', 'stopped', 'stop', 'idle', 'false', '0'].includes(normalized)) return false;
+    if (['playing', 'play', 'true', '1'].includes(normalized)) return true;
+  }
+  return fallback;
+}
+
+function statePosition(state) {
+  const v = state.position ?? state.progress ?? state.current_time ?? state.currentTime
+    ?? state.current_position ?? state.currentPosition ?? state.played_seconds
+    ?? state.playback_position ?? state.playbackPosition ?? state.playback_time
+    ?? state.playbackTime ?? state.audio_position ?? state.audioPosition
+    ?? state.elapsed ?? state.offset ?? state.pos;
+  const num = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() ? Number(v) : NaN);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return num >= 1000 ? num / 1000 : num;
+}
+
+function isCurrentSong(song) {
+  return Boolean(playerState.currentSong) && songId(playerState.currentSong) === songId(song);
+}
+
+// Interpolated playback position. The host only emits discrete state changes,
+// so between them we advance the last known position with a local clock.
+function playerPosition() {
+  if (!playerState.posAnchor) return 0;
+  const elapsed = playerState.posAnchor.playing ? (performance.now() - playerState.posAnchor.t) / 1000 : 0;
+  return Math.max(0, playerState.posAnchor.pos + elapsed);
+}
+
+// ---- Lyrics -----------------------------------------------------------------
+// Lyrics are read straight from the Songloft server (GET /api/v1/songs/{id}/lyric)
+// because the plugin SDK exposes no lyrics method. The response may be plain LRC
+// text or JSON wrapping the text, so both are tolerated. The active line is
+// derived from the interpolated playback position on every tick.
+let lyricSongId = '';
+let lyricLines = [];
+let lyricLineIdx = -1;
+const lyricCache = new Map();
+
+function serverBasePath() {
+  const marker = '/api/v1/jsplugin/';
+  const index = window.location.pathname.indexOf(marker);
+  return index >= 0 ? window.location.pathname.slice(0, index) : '';
+}
+
+function lyricText(data) {
+  if (typeof data === 'string') return data;
+  const text = data?.lyric ?? data?.lyrics ?? data?.lrc ?? data?.text ?? data?.content
+    ?? data?.data?.lyric ?? data?.data?.lyrics ?? data?.data?.lrc;
+  return typeof text === 'string' ? text : '';
+}
+
+function parseLrc(text) {
+  const lines = [];
+  if (!text) return lines;
+  const re = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+  for (const raw of String(text).split(/\r?\n/)) {
+    re.lastIndex = 0;
+    const times = [];
+    let match;
+    while ((match = re.exec(raw))) {
+      times.push(Number(match[1]) * 60 + Number(match[2]) + (match[3] ? Number(match[3]) / 10 ** match[3].length : 0));
+    }
+    const words = raw.replace(re, '').trim();
+    if (!times.length || !words) continue;
+    for (const time of times) lines.push([time, words]);
+  }
+  lines.sort((a, b) => a[0] - b[0]);
+  return lines;
+}
+
+function setLyricText(text) {
+  const element = $('#playerLyric');
+  if (!element || element.textContent === text) return;
+  element.textContent = text;
+  element.classList.remove('swap');
+  void element.offsetWidth;
+  element.classList.add('swap');
+}
+
+function updateLyricLine(position) {
+  const element = $('#playerLyric');
+  if (!element) return;
+  if (!lyricLines.length) { setLyricText(''); return; }
+  let idx = lyricLineIdx < 0 ? 0 : lyricLineIdx;
+  while (idx + 1 < lyricLines.length && lyricLines[idx + 1][0] <= position) idx += 1;
+  while (idx > 0 && lyricLines[idx][0] > position) idx -= 1;
+  if (idx === 0 && lyricLines[0][0] > position) idx = -1;
+  if (idx !== lyricLineIdx) {
+    lyricLineIdx = idx;
+    setLyricText(idx >= 0 ? lyricLines[idx][1] : '');
+  }
+}
+
+function resetLyric() {
+  lyricLines = [];
+  lyricLineIdx = -1;
+  setLyricText('');
+}
+
+async function loadLyric(id) {
+  if (!id) { resetLyric(); return; }
+  if (lyricCache.has(id)) {
+    lyricLines = lyricCache.get(id);
+    lyricLineIdx = -1;
+    updateLyricLine(playerPosition());
+    return;
+  }
+  let lines = [];
+  if (typeof fetch === 'function') {
+    try {
+      const headers = {};
+      const token = getAuthToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(`${serverBasePath()}/api/v1/songs/${id}/lyric`, { headers });
+      if (response.ok) {
+        const text = await response.text();
+        let data = text;
+        try { data = JSON.parse(text); } catch { /* plain LRC text */ }
+        lines = parseLrc(lyricText(data));
+      }
+    } catch { /* lyrics are best-effort */ }
+  }
+  if (lyricSongId !== id) return; // a newer song superseded this request
+  if (lyricCache.size > 30) lyricCache.delete(lyricCache.keys().next().value);
+  lyricCache.set(id, lines);
+  lyricLines = lines;
+  lyricLineIdx = -1;
+  updateLyricLine(playerPosition());
+}
 
 const NAV_ITEMS = [
   { group: '浏览', id: 'dashboard', label: '概览', icon: 'home' },
@@ -135,9 +399,6 @@ const state = {
   expandedFolders: new Set(['']),
   currentFolder: '',
   recursive: true,
-  currentSong: null,
-  queue: [],
-  queueIndex: -1,
   searchTimer: null,
   toastTimer: null,
   dragSelecting: false,
@@ -528,14 +789,14 @@ function renderTable() {
       ['bitrate', song.bit_rate ? `${song.bit_rate}k` : '—'], ['size', formatSize(song.file_size)],
     ].filter(([id]) => cols.has(id)).map(([id, value]) => `<td class="col-${id}" title="${escapeHtml(String(value).replace(/<[^>]*>/g, ''))}">${id === 'format' ? value : escapeHtml(value)}</td>`).join('');
     const favorite = state.favoriteIds.has(song.id);
-    return `<tr data-song-row="${song.id}" data-song-index="${index}" class="${state.selected.has(song.id) ? 'selected' : ''}"><td class="col-check">${songCheckbox(song)}</td><td class="col-favorite"><button class="favorite-button${favorite ? ' active' : ''}" type="button" data-toggle-favorite="${song.id}" aria-label="${favorite ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorite}">${heartSvg()}</button></td><td class="col-cover play-cover" data-play-song="${song.id}" title="点击封面试听">${coverHtml(song)}</td><td class="col-title"><div class="song-title-cell"><span class="song-title-text">${escapeHtml(song.title)}</span>${state.currentSong?.id === song.id ? '<span class="playing-indicator">▶</span>' : ''}</div></td>${optional}<td class="col-duration">${formatDuration(song.duration)}</td></tr>`;
+    return `<tr data-song-row="${song.id}" data-song-index="${index}" class="${state.selected.has(song.id) ? 'selected' : ''}"><td class="col-check">${songCheckbox(song)}</td><td class="col-favorite"><button class="favorite-button${favorite ? ' active' : ''}" type="button" data-toggle-favorite="${song.id}" aria-label="${favorite ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorite}">${heartSvg()}</button></td><td class="col-cover play-cover" data-play-song="${song.id}" title="点击封面试听">${coverHtml(song)}</td><td class="col-title"><div class="song-title-cell"><span class="song-title-text">${escapeHtml(song.title)}</span>${isCurrentSong(song) ? '<span class="playing-indicator">▶</span>' : ''}</div></td>${optional}<td class="col-duration">${formatDuration(song.duration)}</td></tr>`;
   }).join('')}</tbody></table>`;
 }
 
 function renderList() {
   return `<div class="song-list">${state.songs.map((song, index) => {
     const favorite = state.favoriteIds.has(song.id);
-    return `<div class="song-list-item${state.selected.has(song.id) ? ' selected' : ''}" data-song-row="${song.id}" data-song-index="${index}"><div>${songCheckbox(song)}</div><button class="favorite-button${favorite ? ' active' : ''}" type="button" data-toggle-favorite="${song.id}" aria-label="${favorite ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorite}">${heartSvg()}</button><div class="play-cover" data-play-song="${song.id}" title="点击封面试听">${coverHtml(song)}</div><div class="song-list-meta"><strong>${escapeHtml(song.title)}${state.currentSong?.id === song.id ? '　▶' : ''}</strong><span>${escapeHtml(song.artist || '未知歌手')} · ${escapeHtml(song.album || '未知专辑')}</span></div><div class="song-list-tail"><div>${formatDuration(song.duration)}</div><div>${escapeHtml(String(song.format || '').toUpperCase())}</div></div></div>`;
+    return `<div class="song-list-item${state.selected.has(song.id) ? ' selected' : ''}" data-song-row="${song.id}" data-song-index="${index}"><div>${songCheckbox(song)}</div><button class="favorite-button${favorite ? ' active' : ''}" type="button" data-toggle-favorite="${song.id}" aria-label="${favorite ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorite}">${heartSvg()}</button><div class="play-cover" data-play-song="${song.id}" title="点击封面试听">${coverHtml(song)}</div><div class="song-list-meta"><strong>${escapeHtml(song.title)}${isCurrentSong(song) ? '　▶' : ''}</strong><span>${escapeHtml(song.artist || '未知歌手')} · ${escapeHtml(song.album || '未知专辑')}</span></div><div class="song-list-tail"><div>${formatDuration(song.duration)}</div><div>${escapeHtml(String(song.format || '').toUpperCase())}</div></div></div>`;
   }).join('')}</div>`;
 }
 
@@ -1111,30 +1372,106 @@ function renderColumnOptions() {
   $('#pageSizeSelect').value = String(state.pageSize);
 }
 
-function playSong(song, queue = state.songs) {
-  if (!song?.url) return showToast('这首歌曲没有可用的播放地址', 'error');
-  state.queue = queue;
-  state.queueIndex = Math.max(0, queue.findIndex((item) => item.id === song.id));
-  state.currentSong = song;
-  const audio = $('#audioElement');
-  audio.src = authUrl(song.url);
-  $('#playerTitle').textContent = song.title;
-  $('#playerArtist').textContent = `${song.artist || '未知歌手'} · ${song.album || '未知专辑'}`;
-  $('#playerCover').src = authUrl(song.cover_url) || authUrl('static/icon.svg');
-  $('#playerBar').classList.remove('hidden');
-  document.body.classList.add('player-active');
-  audio.play().catch((error) => showToast(`播放失败：${error.message}`, 'error'));
+function playSongs(songs, startIndex = 0) {
+  if (!playerBridge.available()) return Promise.reject(new Error('当前环境不支持播放'));
+  const ids = songs.map((song) => Number(songId(song))).filter((id) => Number.isFinite(id) && id > 0);
+  if (!ids.length) return Promise.reject(new Error('没有可播放的歌曲'));
+  playerState.dismissed = false;
+  const index = Math.max(0, Math.min(startIndex, ids.length - 1));
+  return playerBridge.setQueue(ids, index);
+}
+
+// Play a single song without touching the rest of the queue. The song is
+// appended to the host queue only if it is not already present (no duplicates),
+// then started by id — unlike playSongs, which replaces the whole queue.
+async function playSingleSong(id) {
+  if (!playerBridge.available()) throw new Error('当前环境不支持播放');
+  if (!Number.isFinite(id) || id <= 0) throw new Error('歌曲无效');
+  playerState.dismissed = false;
+  const inQueue = playerState.queue.some((song) => Number(songId(song)) === id);
+  if (!inQueue) await playerBridge.addToQueue([id]);
+  return playerBridge.play(id);
+}
+
+function syncPlayerState(raw) {
+  if (!raw || typeof raw !== 'object') return;
+  const queue = stateQueue(raw);
+  const index = stateIndex(raw, queue);
+  const current = index >= 0 && index < queue.length ? queue[index] : null;
+  playerState.queue = queue;
+  playerState.currentIndex = index;
+  playerState.playing = statePlaying(raw, playerState.playing);
+  playerState.currentSong = current;
+  playerState.duration = Number(current?.duration || 0);
+  const pos = statePosition(raw);
+  if (pos != null) {
+    playerState.posAnchor = { pos, t: performance.now(), playing: playerState.playing };
+  } else if (playerState.posAnchor) {
+    playerState.posAnchor.playing = playerState.playing;
+  }
+  const nextLyricId = current ? songId(current) : '';
+  if (nextLyricId !== lyricSongId) {
+    lyricSongId = nextLyricId;
+    resetLyric();
+    loadLyric(nextLyricId);
+  }
+  updatePlayerUI();
+}
+
+function updatePlayerUI() {
+  const song = playerState.currentSong;
+  const visible = Boolean(song) && !playerState.dismissed;
+  $('#playerBar').classList.toggle('hidden', !visible);
+  document.body.classList.toggle('player-active', visible);
+  if (song) {
+    $('#playerTitle').textContent = song.title || song.name || '未播放';
+    $('#playerArtist').textContent = `${song.artist || '未知歌手'} · ${song.album || '未知专辑'}`;
+    $('#playerCover').src = authUrl(song.cover_url) || authUrl('static/icon.svg');
+  }
+  $('#playerToggle').classList.toggle('paused', playerState.playing);
+  $('#playerToggle').setAttribute('aria-label', playerState.playing ? '暂停' : '播放');
+  updatePlayerFavoriteUI();
   renderQueue();
-  renderSongs();
+  tickPlayer();
+  if (visible && state.songs.length && !$('#songsSection').classList.contains('hidden')) renderSongs();
+}
+
+function updatePlayerFavoriteUI() {
+  const button = $('#playerFavorite');
+  if (!button) return;
+  const id = playerState.currentSong ? Number(songId(playerState.currentSong)) : NaN;
+  const favorite = Number.isFinite(id) && id > 0 && state.favoriteIds.has(id);
+  button.classList.toggle('active', favorite);
+  button.setAttribute('aria-pressed', String(favorite));
+  button.setAttribute('aria-label', favorite ? '取消收藏当前歌曲' : '收藏当前歌曲');
+  button.title = favorite ? '取消收藏' : '收藏';
+}
+
+async function togglePlayerFavorite() {
+  const song = playerState.currentSong;
+  const id = song ? Number(songId(song)) : NaN;
+  if (!Number.isFinite(id) || id <= 0) return;
+  const favorite = !state.favoriteIds.has(id);
+  const name = song.title || song.name || '';
+  try {
+    await apiPost('/api/favorites/set', { id, favorite });
+    if (favorite) state.favoriteIds.add(id); else state.favoriteIds.delete(id);
+    updatePlayerFavoriteUI();
+    if (!$('#songsSection').classList.contains('hidden')) renderSongs();
+    showToast(favorite ? `已收藏《${name}》` : `已取消收藏《${name}》`);
+  } catch (error) {
+    showToast(`${favorite ? '收藏' : '取消收藏'}失败：${error.message}`, 'error');
+  }
 }
 
 function renderQueue() {
-  $('#queueCount').textContent = `${state.queue.length.toLocaleString()} 首`;
-  $('#queueList').innerHTML = state.queue.length ? state.queue.map((song, index) => `
-    <button class="queue-item${index === state.queueIndex ? ' active' : ''}" type="button" data-queue-index="${index}">
+  const queue = playerState.queue;
+  $('#queueCount').textContent = `${queue.length.toLocaleString()} 首`;
+  $('#queueList').innerHTML = queue.length ? queue.map((song, index) => `
+    <button class="queue-item${index === playerState.currentIndex ? ' active' : ''}" type="button" data-queue-index="${index}">
       ${coverHtml(song, 'queue-cover')}
-      <span><strong>${escapeHtml(song.title)}</strong><small>${escapeHtml(song.artist || '未知歌手')}</small></span>
-      ${index === state.queueIndex ? '<i aria-label="正在播放">▶</i>' : ''}
+      <span><strong>${escapeHtml(song.title || song.name || '')}</strong><small>${escapeHtml(song.artist || '未知歌手')}</small></span>
+      ${index === playerState.currentIndex ? '<i aria-label="正在播放">▶</i>' : ''}
     </button>`).join('') : '<div class="queue-empty">播放列表为空</div>';
 }
 
@@ -1144,18 +1481,32 @@ function setQueuePanel(open) {
   $('#playerQueueButton').setAttribute('aria-expanded', String(open));
 }
 
+function setPlayerCollapsed(collapsed) {
+  $('#playerBar').classList.toggle('collapsed', collapsed);
+  const button = $('#playerCollapse');
+  if (button) button.setAttribute('aria-expanded', String(!collapsed));
+}
+
+function togglePlayerCollapsed() {
+  setPlayerCollapsed(!$('#playerBar').classList.contains('collapsed'));
+}
+
+function tickPlayer() {
+  if ($('#playerBar').classList.contains('hidden')) return;
+  const pos = playerPosition();
+  const duration = playerState.duration || 0;
+  $('#playerCurrent').textContent = formatDuration(pos);
+  $('#playerDuration').textContent = formatDuration(duration);
+  $('#playerSeek').value = duration ? String(Math.min(1000, Math.round(pos / duration * 1000))) : '0';
+  updateLyricLine(pos);
+}
+
 function playCurrentPage() {
   const button = $('#playAllButton');
   setBusy(button, true, '正在准备…');
-  try {
-    const songs = state.songs.filter((song) => song.url);
-    if (!songs.length) throw new Error('本页没有可播放的歌曲');
-    playSong(songs[0], songs);
-  } catch (error) {
-    showToast(`准备播放失败：${error.message}`, 'error');
-  } finally {
-    setBusy(button, false);
-  }
+  playSongs(state.songs, 0)
+    .catch((error) => showToast(`播放失败：${error.message}`, 'error'))
+    .finally(() => setBusy(button, false));
 }
 
 async function playSelectedSongs() {
@@ -1163,30 +1514,12 @@ async function playSelectedSongs() {
   setBusy(button, true, '正在准备…');
   try {
     const data = await apiPost('/api/songs/by-ids', { ids: Array.from(state.selected) });
-    const songs = (data.songs || []).filter((song) => song.url);
-    if (!songs.length) throw new Error('选中内容中没有可播放的歌曲');
-    playSong(songs[0], songs);
+    await playSongs(data.songs || [], 0);
   } catch (error) {
     showToast(`播放选中歌曲失败：${error.message}`, 'error');
   } finally {
     setBusy(button, false);
   }
-}
-
-function playAdjacent(direction) {
-  if (!state.queue.length) return;
-  const next = state.queueIndex + direction;
-  if (next < 0 || next >= state.queue.length) return;
-  playSong(state.queue[next], state.queue);
-}
-
-function updatePlayerTime() {
-  const audio = $('#audioElement');
-  $('#playerCurrent').textContent = formatDuration(audio.currentTime);
-  $('#playerDuration').textContent = formatDuration(audio.duration);
-  $('#playerSeek').value = audio.duration ? Math.round(audio.currentTime / audio.duration * 1000) : 0;
-  $('#playerToggle').classList.toggle('paused', !audio.paused);
-  $('#playerToggle').setAttribute('aria-label', audio.paused ? '播放' : '暂停');
 }
 
 function closeMobileNav() {
@@ -1304,8 +1637,8 @@ function bindEvents() {
     const play = event.target.closest('[data-play-song]');
     if (play) {
       event.stopPropagation();
-      const song = state.songs.find((item) => item.id === Number(play.dataset.playSong));
-      return playSong(song);
+      const id = Number(play.dataset.playSong);
+      return playSingleSong(id).catch((error) => showToast(`播放失败：${error.message}`, 'error'));
     }
 
     const favoriteToggle = event.target.closest('[data-toggle-favorite]');
@@ -1317,8 +1650,9 @@ function bindEvents() {
 
     const queueItem = event.target.closest('[data-queue-index]');
     if (queueItem) {
-      const index = Number(queueItem.dataset.queueIndex);
-      return playSong(state.queue[index], state.queue);
+      const song = playerState.queue[Number(queueItem.dataset.queueIndex)];
+      if (!song) return;
+      return playerBridge.play(Number(songId(song))).catch((error) => showToast(`播放失败：${error.message}`, 'error'));
     }
 
     if (event.target.closest('[data-select-song]')) return;
@@ -1504,20 +1838,43 @@ function bindEvents() {
   $('#mobileNavButton').addEventListener('click', () => { $('.sidebar').classList.add('open'); $('#mobileNavBackdrop').classList.remove('hidden'); });
   $('#mobileNavBackdrop').addEventListener('click', closeMobileNav);
 
-  const audio = $('#audioElement');
-  audio.addEventListener('play', updatePlayerTime);
-  audio.addEventListener('pause', updatePlayerTime);
-  audio.addEventListener('timeupdate', updatePlayerTime);
-  audio.addEventListener('loadedmetadata', updatePlayerTime);
-  audio.addEventListener('ended', () => playAdjacent(1));
-  audio.addEventListener('error', () => showToast('试听播放失败，请检查歌曲源或网络', 'error'));
-  $('#playerToggle').addEventListener('click', () => audio.paused ? audio.play() : audio.pause());
-  $('#playerPrev').addEventListener('click', () => playAdjacent(-1));
-  $('#playerNext').addEventListener('click', () => playAdjacent(1));
+  const playerError = (error) => showToast(`操作失败：${error.message}`, 'error');
+  $('#playerToggle').addEventListener('click', () => playerBridge.toggle().catch(playerError));
+  $('#playerPrev').addEventListener('click', () => playerBridge.previous().catch(playerError));
+  $('#playerNext').addEventListener('click', () => playerBridge.next().catch(playerError));
   $('#playerQueueButton').addEventListener('click', () => setQueuePanel($('#queuePanel').classList.contains('hidden')));
   $('#queueClose').addEventListener('click', () => setQueuePanel(false));
-  $('#playerSeek').addEventListener('input', (event) => { if (audio.duration) audio.currentTime = Number(event.target.value) / 1000 * audio.duration; });
-  $('#playerClose').addEventListener('click', () => { audio.pause(); audio.removeAttribute('src'); state.currentSong = null; state.queue = []; state.queueIndex = -1; setQueuePanel(false); $('#playerBar').classList.add('hidden'); document.body.classList.remove('player-active'); renderQueue(); renderSongs(); });
+  $('#playerFavorite').addEventListener('click', () => togglePlayerFavorite());
+  document.addEventListener('click', (event) => {
+    if ($('#queuePanel').classList.contains('hidden')) return;
+    if (event.target.closest('#queuePanel') || event.target.closest('#playerQueueButton')) return;
+    setQueuePanel(false);
+  });
+  $('#playerSeek').addEventListener('input', (event) => {
+    const duration = playerState.duration;
+    if (!duration) return;
+    const seconds = Number(event.target.value) / 1000 * duration;
+    playerState.posAnchor = { pos: seconds, t: performance.now(), playing: playerState.playing };
+    tickPlayer();
+    playerBridge.seek(seconds).catch(playerError);
+  });
+  $('#playerClose').addEventListener('click', () => {
+    playerState.dismissed = true;
+    setQueuePanel(false);
+    playerBridge.pause().catch(() => {});
+    updatePlayerUI();
+  });
+  $('#playerCollapse').addEventListener('click', () => togglePlayerCollapsed());
+  $('#playerCover').addEventListener('click', () => {
+    if ($('#playerBar').classList.contains('collapsed')) setPlayerCollapsed(false);
+  });
+  setInterval(tickPlayer, 500);
+}
+
+function initPlayer() {
+  if (!playerBridge.available()) return;
+  playerBridge.onState(syncPlayerState);
+  playerBridge.getState().then(syncPlayerState).catch(() => {});
 }
 
 async function init() {
@@ -1542,8 +1899,9 @@ async function init() {
     renderNav();
     renderSummary();
     renderDashboard();
+    initPlayer();
   } catch (error) {
-    $('#dashboard').innerHTML = `<div class="error-state"><div><strong>歌曲库 Plus 无法启动</strong><span>${escapeHtml(error.message)}</span><p>请确认 Songloft 版本不低于 v2.10.0，并已授予插件歌曲读取权限。</p><button class="primary-button" type="button" onclick="location.reload()">重新加载</button></div></div>`;
+    $('#dashboard').innerHTML = `<div class="error-state"><div><strong>歌曲库 Plus 无法启动</strong><span>${escapeHtml(error.message)}</span><p>请确认 Songloft 版本不低于 v2.11.0，并已授予插件歌曲读取权限。</p><button class="primary-button" type="button" onclick="location.reload()">重新加载</button></div></div>`;
   }
 }
 

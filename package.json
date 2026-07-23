@@ -1,16 +1,16 @@
 {
   "name": "songloft-library-plus",
-  "version": "0.2.14",
+  "version": "0.2.16",
   "private": true,
   "description": "Songloft 歌曲库 Plus 插件",
   "scripts": {
-    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "clean": "node -e \"const fs=require('fs');fs.rmSync('dist/_build',{recursive:true,force:true});try{fs.unlinkSync('dist/library-plus.jsplugin.zip')}catch(e){}\"",
     "build": "npm run clean && songloft-plugin build && node scripts/version-artifact.mjs",
     "dev": "songloft-plugin dev",
     "validate": "songloft-plugin validate",
     "typecheck": "tsc --noEmit",
     "check:static": "node --check static/js/app.js",
-    "test:ui": "node --test tests/*.test.mjs",
+    "test:ui": "node --test --test-force-exit tests/*.test.mjs",
     "verify:package": "node scripts/verify-artifact.mjs",
     "test": "npm run typecheck && npm run check:static && npm run test:ui && npm run build && npm run verify:package"
   },

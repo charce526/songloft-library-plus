@@ -799,7 +799,7 @@ router.post('/api/delete', async (req) => {
 
 router.get('/api/capabilities', async () => {
   const capabilities = {
-    minHostVersion: '2.10.0',
+    minHostVersion: '2.11.0',
     hostVersion: '',
     categoryFacets: false,
     language: false,

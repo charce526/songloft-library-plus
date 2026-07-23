@@ -9,7 +9,7 @@ Songloft 歌曲库 Plus 是一款面向 [Songloft](https://github.com/songloft-o
 [Songloft](https://github.com/songloft-org/songloft) 是本插件所依赖的音乐服务项目。本插件基于 Songloft 提供的插件能力开发，是独立维护的扩展项目，并非 Songloft 主程序的内置组件。
 
 - 上游项目：[songloft-org/songloft](https://github.com/songloft-org/songloft)
-- 最低兼容版本：Songloft v2.10.0
+- 最低兼容版本：Songloft v2.11.0
 - 语种、风格等能力会根据当前 Songloft 版本自动检测
 
 ## ✨ 功能亮点
