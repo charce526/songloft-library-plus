@@ -1531,7 +1531,7 @@ async function refreshIndex(force) {
   const button = $('#refreshButton');
   setBusy(button, true, '…');
   try {
-    state.index = await apiGet(`/api/index${force ? '?refresh=1' : ''}`);
+    state.index = await loadLibraryIndex(force);
     renderSummary();
     if (state.mode === 'dashboard') renderDashboard();
     else if (state.mode === 'folders') {
@@ -1889,7 +1889,7 @@ async function init() {
   try {
     const [capabilities, index, favorites] = await Promise.all([
       apiGet('/api/capabilities').catch(() => ({ language: false, style: false })),
-      apiGet('/api/index'),
+      loadLibraryIndex(false),
       apiGet('/api/favorites/ids').catch(() => ({ ids: [] })),
     ]);
     state.capabilities = capabilities;
@@ -1906,3 +1906,14 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+async function loadLibraryIndex(force) {
+  let result = await apiGet(`/api/index?background=1${force ? '&refresh=1' : ''}`);
+  while (result.pending) {
+    const label = document.querySelector('#dashboard .loading-state p');
+    if (label) label.textContent = `正在建立歌曲库索引…已读取 ${(result.loaded || 0).toLocaleString()} 首`;
+    await new Promise(resolve => setTimeout(resolve, 500));
+    result = await apiGet('/api/index?background=1');
+  }
+  return result;
+}
