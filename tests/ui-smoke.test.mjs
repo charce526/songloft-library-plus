@@ -190,6 +190,7 @@ test('紧凑界面、歌曲选择、分类返回、收藏、文件夹布局和�
   const posts = [];
   const gets = [];
   let totalSongs = songs.length;
+  const userTags = [{ id: 1, name: '深夜歌单', color: '#4a90d9', song_count: 1 }];
   const playlists = [
     { id: 10, type: 'normal', name: '通勤', description: '上班路上', cover_url: '', labels: [], song_count: 2 },
     { id: 11, type: 'normal', name: '周杰伦', description: '', cover_url: '', labels: [], song_count: 0 },
@@ -199,9 +200,12 @@ test('紧凑界面、歌曲选择、分类返回、收藏、文件夹布局和�
   window.SongloftPlugin = {
     apiGet: async (path) => {
       gets.push(path);
-      if (path.startsWith('/api/capabilities')) return { hostVersion: '2.11.0', language: true, style: true };
+      if (path.startsWith('/api/capabilities')) return { hostVersion: '2.11.0', language: true, style: true, userTags: true };
       if (path.startsWith('/api/index')) return index;
-      if (path === '/api/favorites/ids') return { ids: [1] };
+      if (path === '/api/favorites/ids') return { ids: [1], version: 1, realtime: true };
+      if (path === '/api/favorites/version') return { supported: true, version: 1 };
+      if (path.startsWith('/api/usertags/') && path.endsWith('/song-ids')) return { ids: [2] };
+      if (path === '/api/usertags') return { tags: structuredClone(userTags) };
       if (path.startsWith('/api/songs')) return { songs, total: totalSongs, offset: 0, limit: 100 };
       if (path.startsWith('/api/song-ids')) return { ids: songs.map((song) => song.id), total: songs.length };
       if (path.startsWith('/api/playlists')) {
@@ -220,6 +224,13 @@ test('紧凑界面、歌曲选择、分类返回、收藏、文件夹布局和�
       if (path === '/api/favorites/set') return { success: true, id: body.id, favorite: body.favorite };
       if (path === '/api/playlists/from-category') return { success: true, created: false, playlistId: body.playlistId, added: 2, skipped: 0, coverSet: true };
       if (path === '/api/songs/by-ids') return { songs: songs.filter((song) => body.ids.includes(song.id)) };
+      if (path === '/api/usertags/create') {
+        const tag = { id: userTags.length + 1, name: body.name, color: body.color || '#4a90d9', song_count: 0 };
+        userTags.push(tag);
+        return { success: true, tag };
+      }
+      if (path === '/api/usertags/bind') return { success: true, bound: body.songIds.length };
+      if (path === '/api/usertags/unbind') return { success: true, unbound: body.songIds.length };
       return { results: [], added: body?.songIds?.length || 0, skipped: 0 };
     },
     getAuthToken: () => 'test-token',
@@ -502,6 +513,26 @@ test('紧凑界面、歌曲选择、分类返回、收藏、文件夹布局和�
   window.document.querySelector('#toggleFolderPane').click();
   assert.ok(window.document.querySelector('#folderBrowser').classList.contains('folder-pane-collapsed'));
   await new Promise((resolve) => setTimeout(resolve, 30));
+
+  // 用户自定义标签（userTags 能力开启时显示导航，可创建/浏览）
+  window.document.querySelector('.songs-table [data-song-row="1"] .col-title').click();
+  window.document.querySelector('.songs-table [data-song-row="2"] .col-title').click();
+  await waitFor(() => window.document.querySelector('#selectionCount')?.textContent.includes('2 首'));
+  window.document.querySelector('[data-action="batch-tag"]').click();
+  await waitFor(() => window.document.querySelector('#batchTagDialog').open);
+  assert.match(window.document.querySelector('#batchTagHint').textContent, /2 首歌曲/);
+  window.document.querySelector('#batchTagNewName').value = '健身';
+  window.document.querySelector('#confirmBatchTagButton').click();
+  await waitFor(() => posts.some((item) => item.path === '/api/usertags/create' && item.body.name === '健身'));
+  assert.deepEqual(Array.from(posts.find((item) => item.path === '/api/usertags/bind')?.body?.songIds || []), [1, 2]);
+  window.document.querySelector('[data-nav="usertags"]').click();
+  await waitFor(() => window.document.querySelector('.tag-card'));
+  assert.match(window.document.querySelector('#categoryBrowser').textContent, /健身/);
+  window.document.querySelector('[data-open-tag="1"]').click();
+  await waitFor(() => gets.some((path) => path.includes('tag_id=1')));
+  assert.match(window.document.querySelector('#pageTitle').textContent, /深夜歌单/);
+  window.document.querySelector('#categoryBackButton').click();
+  await waitFor(() => window.document.querySelector('.tag-card'));
 
   dom.window.close();
 });

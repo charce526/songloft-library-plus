@@ -88,6 +88,10 @@
               <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               <span class="btn-label">编辑</span>
             </button>
+            <button data-action="batch-tag" data-capability="userTags" type="button" title="为选中歌曲打标签">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.9 12V5a2 2 0 0 1 2-2h7a2 2 0 0 1 1.4.6l7.3 7.2a2 2 0 0 1 0 2.6z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+              <span class="btn-label">打标签</span>
+            </button>
             <button data-action="remove-playlist" class="danger hidden" type="button" title="从当前歌单移除选中的歌曲">
               <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h12M3 12h12M3 17h8M14 17h6"/></svg>
               <span class="btn-label">移除</span>
@@ -200,6 +204,24 @@
       <label class="danger-option"><input id="deleteFilesCheckbox" type="checkbox"> 同时永久删除服务器上的本地音乐文件</label>
       <p class="warning-text">删除文件无法撤销，默认仅删除 Songloft 曲库记录。</p>
       <footer><button type="button" data-close-dialog class="tonal-button">取消</button><button id="confirmDeleteButton" class="danger-button" type="button">删除记录</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="tagManagerDialog" class="modal">
+    <form method="dialog" class="modal-card compact-modal">
+      <header><h2 id="tagManagerTitle">新建标签</h2><button type="button" data-close-dialog class="icon-button" aria-label="关闭">×</button></header>
+      <label>标签名称<input id="tagNameInput" type="text" placeholder="例如：健身、开车、深夜"></label>
+      <label>颜色<input id="tagColorInput" type="color" value="#4a90d9"></label>
+      <footer><button type="button" data-close-dialog class="tonal-button">取消</button><button id="confirmTagManagerButton" class="primary-button" type="button">保存</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="batchTagDialog" class="modal">
+    <form method="dialog" class="modal-card">
+      <header><div><h2>批量打标签</h2><p id="batchTagHint">勾选要添加的标签，取消勾选表示从该标签移除</p></div><button type="button" data-close-dialog class="icon-button" aria-label="关闭">×</button></header>
+      <div id="batchTagList" class="check-list"></div>
+      <label style="margin-top:10px">或创建新标签并加入<input id="batchTagNewName" type="text" placeholder="留空则不创建"></label>
+      <footer><button type="button" data-close-dialog class="tonal-button">取消</button><button id="confirmBatchTagButton" class="primary-button" type="button">应用</button></footer>
     </form>
   </dialog>
 

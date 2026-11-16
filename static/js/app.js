@@ -327,6 +327,7 @@ const NAV_ITEMS = [
   { group: '浏览', id: 'album', label: '专辑', icon: 'album', field: 'album' },
   { group: '浏览', id: 'genre', label: '流派', icon: 'genre', field: 'genre' },
   { group: '浏览', id: 'year', label: '年份', icon: 'calendar', field: 'year' },
+  { group: '浏览', id: 'usertags', label: '标签', icon: 'usertag', capability: 'userTags' },
   { group: '管理', id: 'playlists', label: '歌单管理', icon: 'playlist' },
   { group: '管理', id: 'radios', label: '电台管理', icon: 'radio' },
   { group: '更多分类', id: 'language', label: '语种', icon: 'language', field: 'language', capability: 'language' },
@@ -356,6 +357,7 @@ const ICON_PATHS = {
   style: '<path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4zM19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z"/>',
   file: '<path d="M6 3h8l4 4v14H6zM14 3v5h4M9 13h6m-6 4h6"/>',
   source: '<path d="M7 7h11l-3-3m3 3-3 3M17 17H6l3 3m-3-3 3-3"/>',
+  usertag: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.9 12V5a2 2 0 0 1 2-2h7a2 2 0 0 1 1.4.6l7.3 7.2a2 2 0 0 1 0 2.6z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
 };
 
 function iconSvg(name, className = 'ui-icon') {
@@ -394,6 +396,11 @@ const state = {
   total: 0,
   selected: new Set(),
   favoriteIds: new Set(),
+  favoriteRealtime: false,
+  favoriteVersion: -1,
+  favoritePollTimer: null,
+  userTags: [],
+  currentTagId: null,
   lastSelectedIndex: null,
   visibleColumns: new Set(JSON.parse(localStorage.getItem('library-plus-columns') || '["title","artist","album","year","genre","format","duration"]')),
   expandedFolders: new Set(['']),
@@ -656,6 +663,176 @@ function renderCategory(field) {
     : `<div class="empty-state"><div><strong>没有${escapeHtml(title)}信息</strong><span>扫描或编辑歌曲标签后会自动出现在这里。</span></div></div>`;
 }
 
+// ===== 用户自定义标签（宿主 v2.12.0+） =====
+
+const TAG_COLORS = ['#e05c5c', '#e08a3c', '#d9b23a', '#5cb85c', '#3cb8b8', '#4a90d9', '#8a63d2', '#d25c9e'];
+
+async function loadUserTags() {
+  try {
+    const data = await apiGet('/api/usertags');
+    state.userTags = data.tags || [];
+    return state.userTags;
+  } catch (error) {
+    showToast(`读取标签失败：${error.message}`, 'error');
+    return [];
+  }
+}
+
+async function renderUserTags() {
+  mountSongs(false);
+  setPageHeading('标签', '自定义标签', '按标签整理歌曲，跨流派与专辑组合筛选');
+  $('#categoryBackButton').classList.add('hidden');
+  setCategoryPlaylistAction();
+  await loadUserTags();
+  renderUserTagGrid();
+}
+
+function renderUserTagGrid() {
+  showSection('categoryBrowser');
+  const browser = $('#categoryBrowser');
+  const tags = state.userTags;
+  if (!tags.length) {
+    browser.innerHTML = `<div class="empty-state"><div><strong>还没有标签</strong><span>选中歌曲后点击“打标签”，或在下方创建第一个标签。</span><button class="primary-button" type="button" data-action="create-tag">创建标签</button></div></div>`;
+    return;
+  }
+  const cards = tags.map((tag) => {
+    const color = tag.color || TAG_COLORS[tag.id % TAG_COLORS.length];
+    const cover = tag.cover_url
+      ? `<img class="category-cover" src="${escapeHtml(authUrl(tag.cover_url))}" alt="" loading="lazy">`
+      : `<span class="category-cover tag-color-chip" style="background:${escapeHtml(color)}" aria-hidden="true">${escapeHtml(tag.name.slice(0, 1))}</span>`;
+    return `<div class="category-card tag-card">
+      <button class="tag-open" type="button" data-open-tag="${tag.id}" title="浏览标签歌曲">${cover}<span class="meta"><strong>${escapeHtml(tag.name)}</strong><small>${tag.song_count ?? 0} 首歌曲</small></span></button>
+      <div class="tag-actions"><button class="icon-button" type="button" data-edit-tag="${tag.id}" aria-label="编辑标签 ${escapeHtml(tag.name)}" title="编辑">✎</button><button class="icon-button" type="button" data-delete-tag="${tag.id}" aria-label="删除标签 ${escapeHtml(tag.name)}" title="删除">🗑</button></div>
+    </div>`;
+  }).join('');
+  browser.innerHTML = `<div class="tags-toolbar"><span>${tags.length.toLocaleString()} 个标签</span><button class="tonal-button" type="button" data-action="create-tag">＋ 新建标签</button></div><div class="category-grid">${cards}</div>`;
+}
+
+async function openTagSongs(tagId) {
+  const tag = state.userTags.find((item) => item.id === tagId);
+  if (!tag) return;
+  mountSongs(false);
+  state.mode = 'usertag-detail';
+  state.currentTagId = tagId;
+  renderNav();
+  setPageHeading('标签', tag.name, '标签内歌曲');
+  $('#categoryBackButton').classList.remove('hidden');
+  setCategoryPlaylistAction();
+  state.page = 0;
+  state.selected.clear();
+  showSection('songsSection');
+  await loadTagSongs();
+}
+
+async function loadTagSongs() {
+  const container = $('#songsContainer');
+  container.innerHTML = '<div class="loading-state"><div><div class="spinner"></div><p>正在加载歌曲…</p></div></div>';
+  try {
+    // 复用统一的 loadSongs 通道：currentQuery 会带上 tag_id
+    await loadSongs();
+  } catch (error) {
+    container.innerHTML = `<div class="error-state"><div><strong>标签歌曲加载失败</strong><span>${escapeHtml(error.message)}</span></div></div>`;
+  }
+}
+
+function openTagManagerDialog(mode, tag = null) {
+  const dialog = $('#tagManagerDialog');
+  $('#tagManagerTitle').textContent = mode === 'create' ? '新建标签' : '编辑标签';
+  $('#tagNameInput').value = tag?.name || '';
+  $('#tagColorInput').value = tag?.color || TAG_COLORS[tag?.id % TAG_COLORS.length] || TAG_COLORS[0];
+  $('#tagManagerDialog').dataset.mode = mode;
+  $('#tagManagerDialog').dataset.tagId = tag?.id || '';
+  dialog.showModal();
+}
+
+async function submitTagManager() {
+  const dialog = $('#tagManagerDialog');
+  const mode = dialog.dataset.mode;
+  const name = $('#tagNameInput').value.trim();
+  const color = $('#tagColorInput').value.trim();
+  if (!name) return showToast('标签名称不能为空', 'error');
+  try {
+    if (mode === 'create') {
+      await apiPost('/api/usertags/create', { name, color });
+      showToast(`标签「${name}」已创建`);
+    } else {
+      await apiPost('/api/usertags/update', { id: Number(dialog.dataset.tagId), name, color });
+      showToast(`标签「${name}」已更新`);
+    }
+    dialog.close();
+    await loadUserTags();
+    if (state.mode === 'usertags') renderUserTagGrid();
+  } catch (error) {
+    showToast(`保存标签失败：${error.message}`, 'error');
+  }
+}
+
+async function deleteTag(tagId) {
+  const tag = state.userTags.find((item) => item.id === tagId);
+  if (!tag) return;
+  if (!confirm(`删除标签「${tag.name}」？歌曲本身不会被删除。`)) return;
+  try {
+    await apiPost('/api/usertags/delete', { id: tagId });
+    showToast(`标签「${tag.name}」已删除`);
+    await loadUserTags();
+    if (state.mode === 'usertags') renderUserTagGrid();
+  } catch (error) {
+    showToast(`删除标签失败：${error.message}`, 'error');
+  }
+}
+
+// 批量打标签：把选中歌曲加入/移出标签
+async function openBatchTagDialog() {
+  if (!state.selected.size) return showToast('请先选择歌曲', 'error');
+  await loadUserTags();
+  const dialog = $('#batchTagDialog');
+  const list = $('#batchTagList');
+  if (!state.userTags.length) {
+    list.innerHTML = '<p class="confirm-note">还没有标签，先创建一个。</p>';
+  } else {
+    list.innerHTML = state.userTags.map((tag) => {
+      const color = tag.color || TAG_COLORS[tag.id % TAG_COLORS.length];
+      return `<label class="check-row tag-check-row"><input type="checkbox" data-tag-option="${tag.id}"><span class="tag-dot" style="background:${escapeHtml(color)}"></span>${escapeHtml(tag.name)}<small>${tag.song_count ?? 0} 首</small></label>`;
+    }).join('');
+  }
+  $('#batchTagHint').textContent = `为选中的 ${state.selected.size} 首歌曲添加或移除标签`;
+  $('#batchTagNewName').value = '';
+  dialog.showModal();
+}
+
+async function submitBatchTags() {
+  const dialog = $('#batchTagDialog');
+  const songIds = Array.from(state.selected);
+  const checked = $$('#batchTagList input[data-tag-option]').filter((input) => input.checked).map((input) => Number(input.dataset.tagOption));
+  const unchecked = $$('#batchTagList input[data-tag-option]').filter((input) => !input.checked).map((input) => Number(input.dataset.tagOption));
+  const newName = $('#batchTagNewName').value.trim();
+  const errors = [];
+  try {
+    if (checked.length) {
+      for (const tagId of checked) {
+        try { await apiPost('/api/usertags/bind', { tagId, songIds }); } catch (error) { errors.push(error.message); }
+      }
+    }
+    if (unchecked.length) {
+      for (const tagId of unchecked) {
+        try { await apiPost('/api/usertags/unbind', { tagId, songIds }); } catch (error) { errors.push(error.message); }
+      }
+    }
+    if (newName) {
+      try {
+        const created = await apiPost('/api/usertags/create', { name: newName });
+        await apiPost('/api/usertags/bind', { tagId: created.tag.id, songIds });
+      } catch (error) { errors.push(error.message); }
+    }
+    dialog.close();
+    if (errors.length) showToast(`部分标签操作失败：${errors[0]}`, 'error');
+    else showToast(`已更新 ${songIds.length} 首歌曲的标签`);
+    await loadUserTags();
+  } catch (error) {
+    showToast(`标签操作失败：${error.message}`, 'error');
+  }
+}
+
 function folderChildrenMap() {
   const map = new Map();
   state.index.folders.forEach((folder) => {
@@ -726,6 +903,7 @@ function currentQuery(extra = {}) {
     keyword: state.keyword,
     sort: state.sort,
     order: state.order,
+    ...(state.currentTagId ? { tag_id: state.currentTagId } : {}),
     ...extra,
   };
 }
@@ -936,6 +1114,7 @@ function switchMode(id) {
     renderFolders();
     return enterFolder(state.currentFolder || '');
   }
+  if (id === 'usertags') return renderUserTags();
   if (id === 'playlists' || id === 'radios') return loadPlaylistManager(id === 'radios' ? 'radio' : 'normal');
   if (item.field) return renderCategory(item.field);
   setPageHeading('歌曲库', item.label, '浏览和管理 Songloft 中的全部歌曲');
@@ -964,6 +1143,11 @@ function setCategoryDetailHeading(field, value) {
 }
 
 function returnToCategory() {
+  if (state.mode === 'usertag-detail') {
+    state.currentTagId = null;
+    state.categoryField = null;
+    return renderUserTags();
+  }
   if (!state.categoryField) return;
   state.filters = {};
   state.keyword = '';
@@ -1683,8 +1867,17 @@ function bindEvents() {
       }
       if (action.dataset.action === 'remove-playlist') return removeSelectedFromPlaylist();
       if (action.dataset.action === 'tags') return openTagsDialog();
+      if (action.dataset.action === 'batch-tag') return openBatchTagDialog();
       if (action.dataset.action === 'delete') return openDeleteDialog();
     }
+
+    const openTag = event.target.closest('[data-open-tag]');
+    if (openTag) return openTagSongs(Number(openTag.dataset.openTag));
+    const editTag = event.target.closest('[data-edit-tag]');
+    if (editTag) return openTagManagerDialog('edit', state.userTags.find((item) => item.id === Number(editTag.dataset.editTag)));
+    const deleteTagButton = event.target.closest('[data-delete-tag]');
+    if (deleteTagButton) return deleteTag(Number(deleteTagButton.dataset.deleteTag));
+    if (event.target.closest('[data-action="create-tag"]')) return openTagManagerDialog('create');
   });
 
   document.addEventListener('change', (event) => {
@@ -1833,6 +2026,8 @@ function bindEvents() {
   $('#deletePlaylistButton').addEventListener('click', () => deletePlaylist());
   $('#confirmTagsButton').addEventListener('click', confirmTags);
   $('#confirmDeleteButton').addEventListener('click', confirmDelete);
+  $('#confirmTagManagerButton').addEventListener('click', submitTagManager);
+  $('#confirmBatchTagButton').addEventListener('click', submitBatchTags);
   $('#confirmRemovePlaylistButton').addEventListener('click', confirmRemoveFromPlaylist);
   $('#deleteFilesCheckbox').addEventListener('change', (event) => { $('#confirmDeleteButton').textContent = event.target.checked ? '永久删除文件' : '删除记录'; });
   $('#mobileNavButton').addEventListener('click', () => { $('.sidebar').classList.add('open'); $('#mobileNavBackdrop').classList.remove('hidden'); });
@@ -1895,6 +2090,9 @@ async function init() {
     state.capabilities = capabilities;
     state.index = index;
     state.favoriteIds = new Set(favorites.ids || []);
+    state.favoriteRealtime = Boolean(favorites.realtime);
+    state.favoriteVersion = Number(favorites.version ?? -1);
+    startFavoriteSync();
     $$('[data-capability]').forEach((element) => { element.hidden = !capabilities[element.dataset.capability]; });
     renderNav();
     renderSummary();
@@ -1906,3 +2104,29 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// 实时收藏同步：轮询后端版本号，变化才重新拉取收藏集合。
+// 其他客户端（官方播放器、手机端等）的收藏操作也能实时反映到本页。
+function startFavoriteSync() {
+  if (state.favoritePollTimer) clearInterval(state.favoritePollTimer);
+  if (!state.favoriteRealtime) return;
+  state.favoritePollTimer = setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      const data = await apiGet('/api/favorites/version');
+      if (!data.supported) { stopFavoriteSync(); return; }
+      if (state.favoriteVersion >= 0 && data.version !== state.favoriteVersion) {
+        const fresh = await apiGet('/api/favorites/ids');
+        state.favoriteIds = new Set(fresh.ids || []);
+        state.favoriteVersion = Number(fresh.version ?? data.version);
+        renderSongs();
+      }
+    } catch { /* 网络抖动时静默重试下一轮 */ }
+  }, 5000);
+}
+
+function stopFavoriteSync() {
+  if (state.favoritePollTimer) clearInterval(state.favoritePollTimer);
+  state.favoritePollTimer = null;
+  state.favoriteRealtime = false;
+}

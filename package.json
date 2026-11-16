@@ -1,6 +1,6 @@
 {
   "name": "songloft-library-plus",
-  "version": "0.2.16",
+  "version": "0.3.0",
   "private": true,
   "description": "Songloft 歌曲库 Plus 插件",
   "scripts": {
@@ -15,8 +15,8 @@
     "test": "npm run typecheck && npm run check:static && npm run test:ui && npm run build && npm run verify:package"
   },
   "devDependencies": {
-    "@songloft/plugin-builder": "2.9.4",
-    "@songloft/plugin-sdk": "2.9.4",
+    "@songloft/plugin-builder": "^2.21.0",
+    "@songloft/plugin-sdk": "^2.21.0",
     "jsdom": "^26.1.0",
     "typescript": "^5.7.0"
   }

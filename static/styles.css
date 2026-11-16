@@ -410,3 +410,47 @@ body.player-active .selection-bar { bottom: calc(var(--player-height) + 10px); }
   .check-list { grid-template-columns: 1fr; }
   .dashboard-playlist-grid { grid-template-columns: 1fr; }
 }
+
+/* ===== 用户自定义标签 ===== */
+.tag-color-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 22px;
+}
+.tag-card { position: relative; }
+.tag-card .tag-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.tag-card .meta { display: flex; flex-direction: column; min-width: 0; }
+.tag-card .meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.tag-card:hover .tag-actions, .tag-card:focus-within .tag-actions { opacity: 1; }
+.tags-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  color: var(--text-secondary, #666);
+}
+.tag-check-row { display: flex; align-items: center; gap: 8px; }
+.tag-check-row small { color: var(--text-secondary, #999); margin-left: auto; }
+.tag-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }

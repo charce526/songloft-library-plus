@@ -6,6 +6,7 @@ import {
   parseQuery,
   type HTTPRequest,
   type HTTPResponse,
+  type PlaylistSongsChangeEvent,
   type Song,
 } from '@songloft/plugin-sdk';
 
@@ -52,6 +53,55 @@ const router = createRouter();
 const cacheTtlMs = 2 * 60 * 1000;
 let indexCache: LibraryIndex | null = null;
 let indexPromise: Promise<LibraryIndex> | null = null;
+
+// ===== 实时收藏同步 =====
+// 订阅宿主歌单成员变更事件（v2.13.10+），维护收藏歌曲的实时集合与版本号。
+// 前端通过 /api/favorites/version 轻量探询，版本变化才重新拉取收藏列表。
+const FAVORITE_PLAYLIST_IDS = [1, 2]; // 1 = 普通收藏歌单，2 = 电台收藏歌单
+let favoriteIdsCache: Set<number> | null = null;
+let favoriteVersion = 0;
+let favoriteSyncSupported = false;
+let favoriteSyncFull = false; // 事件已携带完整成员变更，无需从歌单 API 推导
+
+async function computeFavoriteSongIds(): Promise<Set<number>> {
+  const readFavorite = async (playlistId: number): Promise<LibrarySong[]> => {
+    try {
+      return await songloft.playlists.getSongs(playlistId, { limit: 100000, offset: 0 }) as LibrarySong[];
+    } catch {
+      return [];
+    }
+  };
+  const [normalSongs, radioSongs] = await Promise.all([readFavorite(1), readFavorite(2)]);
+  return new Set([...normalSongs, ...radioSongs].map((song) => song.id));
+}
+
+async function getFavoriteSongIds(): Promise<Set<number>> {
+  if (favoriteIdsCache && (favoriteSyncFull || !favoriteSyncSupported)) return favoriteIdsCache;
+  // 事件模式开启但尚未收到过完整快照时，先做一次全量校准
+  favoriteIdsCache = await computeFavoriteSongIds();
+  favoriteSyncFull = true;
+  favoriteVersion += 1;
+  return favoriteIdsCache;
+}
+
+async function handlePlaylistSongsChange(event: PlaylistSongsChangeEvent): Promise<void> {
+  if (!FAVORITE_PLAYLIST_IDS.includes(event.playlistId)) return;
+  if (!favoriteIdsCache) favoriteIdsCache = await computeFavoriteSongIds();
+  if (event.type === 'add') favoriteIdsCache.add(event.songId);
+  else favoriteIdsCache.delete(event.songId);
+  favoriteVersion += 1;
+}
+
+async function subscribeFavoriteEvents(): Promise<void> {
+  try {
+    await songloft.events.onPlaylistSongsChange(handlePlaylistSongsChange);
+    favoriteSyncSupported = true;
+    songloft.log.info('收藏实时同步已开启（歌单成员变更事件）');
+  } catch (error) {
+    favoriteSyncSupported = false;
+    songloft.log.warn(`歌单成员变更事件不可用，收藏改为按需刷新: ${String((error as Error).message || error)}`);
+  }
+}
 
 function normalizePath(input: string): string {
   if (!input) return '';
@@ -368,20 +418,21 @@ async function hostRequest(path: string, options: RequestInit = {}): Promise<unk
 
 async function songsForQuery(index: LibraryIndex, query: Record<string, string>): Promise<LibrarySong[]> {
   const playlistId = Number(query.playlist_id || 0);
-  if (!playlistId) return index.songs;
-  return songloft.playlists.getSongs(playlistId, { limit: 100000, offset: 0 }) as Promise<LibrarySong[]>;
-}
-
-async function getFavoriteSongIds(): Promise<Set<number>> {
-  const readFavorite = async (playlistId: number): Promise<LibrarySong[]> => {
+  if (playlistId) {
+    return songloft.playlists.getSongs(playlistId, { limit: 100000, offset: 0 }) as Promise<LibrarySong[]>;
+  }
+  const tagId = Number(query.tag_id || 0);
+  if (tagId) {
+    // 标签歌曲：走宿主 REST 端点取 ID 集合，再从索引中过滤
     try {
-      return await songloft.playlists.getSongs(playlistId, { limit: 100000, offset: 0 }) as LibrarySong[];
+      const body = await hostRequest(`/api/v1/song-tags/${tagId}/song-ids`) as { song_ids?: number[]; ids?: number[] };
+      const ids = new Set((Array.isArray(body?.song_ids) ? body.song_ids : Array.isArray(body?.ids) ? body.ids : []).map(Number));
+      return index.songs.filter((song) => ids.has(song.id));
     } catch {
       return [];
     }
-  };
-  const [normalSongs, radioSongs] = await Promise.all([readFavorite(1), readFavorite(2)]);
-  return new Set([...normalSongs, ...radioSongs].map((song) => song.id));
+  }
+  return index.songs;
 }
 
 function sortSongsByFavorite(songs: LibrarySong[], favoriteIds: Set<number>, order: string): LibrarySong[] {
@@ -674,10 +725,16 @@ const FIELD_LABELS_FOR_SERVER: Record<string, string> = {
 router.get('/api/favorites/ids', async () => {
   try {
     const ids = Array.from(await getFavoriteSongIds());
-    return jsonResponse({ ids });
+    return jsonResponse({ ids, version: favoriteVersion, realtime: favoriteSyncSupported });
   } catch (error) {
     return jsonResponse({ error: String((error as Error).message || error) }, 500);
   }
+});
+
+router.get('/api/favorites/version', async () => {
+  // 实时同步未开启时返回 no-support，前端退化为固定间隔全量刷新
+  if (!favoriteSyncSupported) return jsonResponse({ supported: false, version: 0 });
+  return jsonResponse({ supported: true, version: favoriteVersion });
 });
 
 router.post('/api/favorites/set', async (req) => {
@@ -692,6 +749,10 @@ router.post('/api/favorites/set', async (req) => {
     const favorite = body.favorite === true;
     if (favorite) await songloft.playlists.addSongs(playlistId, [id]);
     else await songloft.playlists.removeSongs(playlistId, [id]);
+    // 维护实时缓存：即使事件未开启也保持一致
+    if (!favoriteSyncSupported || !favoriteIdsCache) {
+      favoriteIdsCache = null;
+    }
     return jsonResponse({ success: true, id, favorite });
   } catch (error) {
     return jsonResponse({ error: String((error as Error).message || error) }, 400);
@@ -719,9 +780,125 @@ router.post('/api/favorites/add', async (req) => {
       added += result.added;
       skipped += result.skipped;
     }
+    if (!favoriteSyncSupported) favoriteIdsCache = null;
     return jsonResponse({ success: true, added, skipped });
   } catch (error) {
     return jsonResponse({ error: String((error as Error).message || error) }, 400);
+  }
+});
+
+// ===== 用户自定义标签（songloft.tags，宿主 v2.12.0+） =====
+
+router.get('/api/usertags', async (req) => {
+  try {
+    const query = parseQuery(req.query);
+    const limit = Math.min(500, Math.max(1, Number(query.limit || 200)));
+    const tags = await songloft.tags.list({ limit, offset: 0 });
+    return jsonResponse({ tags });
+  } catch (error) {
+    return jsonResponse({ error: String((error as Error).message || error) }, 500);
+  }
+});
+
+router.post('/api/usertags/create', async (req) => {
+  try {
+    const body = parseRequestBody(req);
+    const name = String(body.name || '').trim();
+    if (!name) throw new Error('标签名称不能为空');
+    const color = body.color ? String(body.color) : undefined;
+    const tag = await songloft.tags.create({ name, color });
+    return jsonResponse({ success: true, tag });
+  } catch (error) {
+    return jsonResponse({ error: String((error as Error).message || error) }, 400);
+  }
+});
+
+router.post('/api/usertags/update', async (req) => {
+  try {
+    const body = parseRequestBody(req);
+    const id = Number(body.id || 0);
+    if (!id) throw new Error('标签不存在');
+    const fields: { name?: string; color?: string } = {};
+    if (body.name != null && String(body.name).trim()) fields.name = String(body.name).trim();
+    if (body.color != null && String(body.color).trim()) fields.color = String(body.color).trim();
+    if (!Object.keys(fields).length) throw new Error('没有要修改的字段');
+    await songloft.tags.update(id, fields);
+    return jsonResponse({ success: true });
+  } catch (error) {
+    return jsonResponse({ error: String((error as Error).message || error) }, 400);
+  }
+});
+
+router.post('/api/usertags/delete', async (req) => {
+  try {
+    const body = parseRequestBody(req);
+    const id = Number(body.id || 0);
+    if (!id) throw new Error('标签不存在');
+    await songloft.tags.delete(id);
+    return jsonResponse({ success: true });
+  } catch (error) {
+    return jsonResponse({ error: String((error as Error).message || error) }, 400);
+  }
+});
+
+router.get('/api/usertags/:id/song-ids', async (req, params) => {
+  try {
+    const id = Number(params.id || 0);
+    if (!id) throw new Error('标签不存在');
+    // SDK 未暴露 listSongs，直接走宿主 REST 端点
+    const body = await hostRequest(`/api/v1/song-tags/${id}/song-ids`) as { song_ids?: number[]; ids?: number[] };
+    const ids = Array.isArray(body?.song_ids) ? body.song_ids : Array.isArray(body?.ids) ? body.ids : [];
+    return jsonResponse({ ids });
+  } catch (error) {
+    return jsonResponse({ error: String((error as Error).message || error) }, 500);
+  }
+});
+
+router.post('/api/usertags/bind', async (req) => {
+  try {
+    const body = parseRequestBody(req);
+    const tagId = Number(body.tagId || 0);
+    const songIds = Array.isArray(body.songIds) ? body.songIds.map(Number).filter(Boolean) : [];
+    if (!tagId) throw new Error('标签不存在');
+    if (songIds.length === 0) throw new Error('没有选择歌曲');
+    const result = await songloft.tags.bindSongs(tagId, songIds);
+    return jsonResponse({ success: true, bound: result.bound });
+  } catch (error) {
+    return jsonResponse({ error: String((error as Error).message || error) }, 400);
+  }
+});
+
+router.post('/api/usertags/unbind', async (req) => {
+  try {
+    const body = parseRequestBody(req);
+    const tagId = Number(body.tagId || 0);
+    const songIds = Array.isArray(body.songIds) ? body.songIds.map(Number).filter(Boolean) : [];
+    if (!tagId) throw new Error('标签不存在');
+    if (songIds.length === 0) throw new Error('没有选择歌曲');
+    const result = await songloft.tags.unbindSongs(tagId, songIds);
+    return jsonResponse({ success: true, unbound: result.unbound });
+  } catch (error) {
+    return jsonResponse({ error: String((error as Error).message || error) }, 400);
+  }
+});
+
+router.get('/api/song-usertags', async (req) => {
+  // 批量查询歌曲的标签：逐首调用 getSongTags
+  try {
+    const query = parseQuery(req.query);
+    const ids = String(query.ids || '').split(',').map(Number).filter(Boolean).slice(0, 200);
+    const map: Record<number, Array<{ id: number; name: string; color: string }>> = {};
+    for (const id of ids) {
+      try {
+        const tags = await songloft.tags.getSongTags(id);
+        map[id] = tags.map((tag) => ({ id: tag.id, name: tag.name, color: tag.color }));
+      } catch {
+        map[id] = [];
+      }
+    }
+    return jsonResponse({ map });
+  } catch (error) {
+    return jsonResponse({ error: String((error as Error).message || error) }, 500);
   }
 });
 
@@ -805,6 +982,7 @@ router.get('/api/capabilities', async () => {
     language: false,
     style: false,
     nativePlayerBridge: false,
+    userTags: false,
   };
   try {
     const version = await hostRequest('/api/v1/version') as Record<string, unknown>;
@@ -816,6 +994,10 @@ router.get('/api/capabilities', async () => {
     capabilities.language = true;
     capabilities.style = true;
   } catch { /* v2.10.0 does not expose category facets */ }
+  try {
+    await songloft.tags.list({ limit: 1 });
+    capabilities.userTags = true;
+  } catch { /* tags bridge requires v2.12.0+ */ }
   return jsonResponse(capabilities);
 });
 
@@ -835,12 +1017,15 @@ router.post('/api/config', async (req) => {
 });
 
 async function onInit(): Promise<void> {
+  await subscribeFavoriteEvents();
   songloft.log.info('歌曲库 Plus 已初始化');
 }
 
 async function onDeinit(): Promise<void> {
   indexCache = null;
   indexPromise = null;
+  favoriteIdsCache = null;
+  favoriteSyncFull = false;
   songloft.log.info('歌曲库 Plus 已停止');
 }
 

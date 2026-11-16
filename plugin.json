@@ -1,6 +1,6 @@
 {
   "name": "歌曲库 Plus",
-  "version": "0.2.16",
+  "version": "0.3.0",
   "description": "增强 Songloft 曲库的多维浏览、批量选择、歌单与电台管理、标签编辑能力。",
   "author": "charce526",
   "homepage": "https://github.com/charce526/songloft-library-plus",
@@ -17,7 +17,7 @@
   ],
   "icon": "icon.svg",
   "updateUrl": "https://raw.githubusercontent.com/charce526/songloft-library-plus/main/plugin.json",
-  "download_url": "https://raw.githubusercontent.com/charce526/songloft-library-plus/main/release/library-plus-v0.2.16.jsplugin.zip",
-  "entryHash": "90ed563ef22d56fd2e211f4c66a0bf2bf4414416bffb60f12d421390e5180a2b",
-  "zipHash": "8f45d474de4c53cf3f9aeb2c9bc962aaeca878f7c75db279726623d0ff244032"
+  "download_url": "https://raw.githubusercontent.com/charce526/songloft-library-plus/main/release/library-plus-v0.3.0.jsplugin.zip",
+  "entryHash": "d4d5d0d83ffad3853c972121add71283f1d4ba34b0ea654b008374f6f81d3cc5",
+  "zipHash": "5db899b518f57bca535d412a50218c3917983b6f5fe7dd2036b9339543d2d0ab"
 }
